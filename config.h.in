@@ -1,0 +1,7 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+/* xino heap size. */
+#define C_SHIM_HEAP_SIZE  @C_SHIM_HEAP_SIZE@
+
+#endif /* CONFIG_H */
