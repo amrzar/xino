@@ -1,0 +1,77 @@
+/**
+ * @file efi_linker.lds.in
+ * @brief Linker script for XINO EFI stub (AArch64, PE/COFF format).
+ *
+ * This linker script builds a valid PE/COFF binary for booting in UEFI firmware.
+ *
+ * PE/COFF section layout:
+ *   1. PE/COFF `.text` section starts at `.Lefi_header_end` (which is
+ *      page-aligned) and ends at `_etext`. `_etext` is page-aligned so there is
+ *      clear boundary between code and data; already 512 aligned in the file.
+ *   2. PE/COFF `.data` section starts at `_etext` and ends at `_end`.
+ *     Only `.data` is part of the raw data in the PE/COFF file; `.bss` is excluded.
+ *     `_edata` is aligned to 512, so the raw data is the PE/COFF file is 
+ *     aligned to the minimum alignment required by PE spec.
+ *
+ * INSPIRED FROM LINUX Z-BOOT.
+ *
+ * @author Amirreza Zarrabi
+ * @date 2025
+ */
+
+ENTRY(__efistub_efi_header)
+
+SECTIONS
+{
+    . = 0;
+    /* PE/COFF header section (DOS + PE + section tables). */
+    .head : ALIGN(4096) {
+        *(.head)
+    }
+
+    .text : {
+        *(.text .text.*)
+    }
+
+    /* Read-only data and gzipped image. */
+    .rodata : ALIGN(8) {
+        __efistub__gzdata_start = .;
+        KEEP(*(.gz..data))
+        /* RFC 1952; the size of uncompressed file stored ad the end of file. */
+        __efistub_payload_size = . - 4;
+        __efistub__gzdata_end = .;
+        *(.rodata .rodata.*)
+
+        . = ALIGN(4);
+        __efistub_code_size = .;
+        /* ukernel code size; code_size ABS sym is defined on command-line. */
+        LONG(code_size);
+
+        . = ALIGN(4096);
+        _etext = .;
+    }
+
+    .data : ALIGN(4096) {
+        *(.data)
+        . = ALIGN(512);  /* Align to 512 (minimum PE/COFF file alignment). */
+        _edata = .;
+    }
+
+    .bss : {
+        *(.bss)
+        . = ALIGN(512);  /* Align end of PE/COFF file. */
+        _end = .;
+    }
+
+    /DISCARD/ :
+    {
+        *(.note.*)
+        *(.comment)
+    }
+}
+
+/* Provide PE/COFF size symbols */
+__efistub__gzdata_size = ABSOLUTE(__efistub__gzdata_end - __efistub__gzdata_start);
+
+__data_rawsize = ABSOLUTE(_edata - _etext);  /* Size of raw .data section in file */
+__data_size    = ABSOLUTE(_end - _etext);    /* Total size of .data + .bss */
