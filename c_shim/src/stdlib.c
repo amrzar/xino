@@ -55,7 +55,7 @@ char *getenv(const char *name) {
  */
 __attribute__((noreturn)) void abort(void) {
   while (1)
-    asm volatile("wfe");
+    __asm__ __volatile__("wfe");
 }
 
 /**
