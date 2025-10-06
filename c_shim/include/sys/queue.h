@@ -15,6 +15,10 @@
 #ifndef QUEUE_H
 #define QUEUE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LIST_HEAD(name, type)                                                  \
   struct name {                                                                \
     struct type *lh_first; /**< Pointer to the first element. */               \
@@ -70,5 +74,9 @@
 #define LIST_EMPTY(head) ((head)->lh_first == NULL)
 #define LIST_FIRST(head) ((head)->lh_first)
 #define LIST_NEXT(elm, field) ((elm)->field.le_next)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* QUEUE_H */

@@ -15,12 +15,12 @@
  * @date 2025
  */
 
-#include <config.h> // for C_SHIM_HEAP_SIZE
+#include <config.h> // for C_SHIM_HEAP_SIZE.
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>    // for memcpy
-#include <sys/queue.h> // for LIST_ENTRY, LIST_HEAD, etc
+#include <string.h>    // for memcpy.
+#include <sys/queue.h> // for LIST_ENTRY, LIST_HEAD, etc.
 
 #define ALIGN_UP_MASK(x, mask) (((x) + (mask)) & ~(mask))
 
@@ -65,7 +65,8 @@ struct block_header {
  * @brief Static memory region serving as the heap.
  */
 static char xino_heap[C_SHIM_HEAP_SIZE]
-    __attribute__((aligned(BLOCK_HEADER_ALIGNMENT)));
+    __attribute__((aligned(BLOCK_HEADER_ALIGNMENT)))
+    __attribute__((section(".bss")));
 
 /**
  * @brief Free block list tracking available memory regions.

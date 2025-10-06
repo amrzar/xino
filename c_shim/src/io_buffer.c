@@ -4,7 +4,7 @@
  *
  * This file implements low-level read and write logic for buffered I/O streams.
  * It supports full, line, and unbuffered modes, with flushing and minimal
- * buffering. Functions include reading, writing, and ungetting characters
+ * buffering. Functions include reading, writing, and un-getting characters
  * with handling for internal buffer states.
  *
  * @note This implementation depends on the `_IO_BUFFER` abstraction defined
@@ -18,8 +18,8 @@
 #include <errno.h>
 #include <io_buffer.h>
 #include <stdbool.h>
-#include <stdio.h>  // For _IOFBF, _IOLBF, _IONBF
-#include <string.h> // for memcpy
+#include <stdio.h>  // For _IOFBF, _IOLBF, _IONBF.
+#include <string.h> // for memcpy.
 
 /* Assume a and b are size_t. */
 #define min(a, b) (((a) < (b)) ? (a) : (b))
@@ -41,21 +41,21 @@ static size_t wbuffer_no_flush(_IO_BUFFER io, const char *buffer,
                                size_t count) {
   size_t n, written = 0;
 
-  // Flush input buffer if there's pending input
+  // Flush input buffer if there's pending input.
   if (io->in) {
     if (io->ops->flush(io))
       return 0;
   }
 
   while (count) {
-    // If buffer is full, flush it
+    // If buffer is full, flush it.
     if (io->out == io->buf_size) {
       if (io->ops->flush(io))
         break;
     }
 
     if (io->out == 0 && io->buf_size <= count) {
-      // Bypass buffer for large writes
+      // Bypass buffer for large writes.
       n = io->ops->write(io, buffer, count);
       if (!n)
         break;
@@ -90,7 +90,8 @@ static size_t wbuffer_no_flush(_IO_BUFFER io, const char *buffer,
  */
 size_t __iob_write(_IO_BUFFER io, const char *buffer, size_t count) {
   size_t written = 0;
-  size_t flush_len, buffer_len;
+  size_t flush_len;  // Byte write with the flush.
+  size_t buffer_len; // Byte write to the buffer without flush.
 
   switch (io->mode) {
   case _IOFBF:
@@ -100,6 +101,7 @@ size_t __iob_write(_IO_BUFFER io, const char *buffer, size_t count) {
   case _IOLBF:
     flush_len = count;
     buffer_len = 0;
+    // Write upto the ending newline.
     while ((flush_len != 0) && (buffer[flush_len - 1] != '\n')) {
       flush_len--;
       buffer_len++;
@@ -115,7 +117,7 @@ size_t __iob_write(_IO_BUFFER io, const char *buffer, size_t count) {
     written = wbuffer_no_flush(io, buffer, flush_len);
     if (written != flush_len)
       return written;
-
+    // Enforce a flush.
     if (io->ops->flush(io))
       return written;
 
@@ -143,7 +145,7 @@ size_t __iob_read(_IO_BUFFER io, char *buffer, size_t count) {
   size_t n, read = 0;
   char *buf_ptr;
 
-  // Flush pending output first
+  // Flush pending output first.
   if (io->out) {
     if (io->ops->flush(io))
       return 0;
@@ -152,8 +154,13 @@ size_t __iob_read(_IO_BUFFER io, char *buffer, size_t count) {
   while (count) {
     if (!io->in) {
       bool buffered = (count < io->buf_size);
+
+      // Leave the head slop buffer, so __iob_ungetc() works.
+      io->inptr = io->buffer + io->io_unget_slop;
+
       if (buffered) {
-        buf_ptr = io->buffer + io->io_unget_slop;
+        // Indirect read trough the buffer.
+        buf_ptr = io->inptr;
         n = io->buf_size;
       } else {
         buf_ptr = buffer;
@@ -161,11 +168,11 @@ size_t __iob_read(_IO_BUFFER io, char *buffer, size_t count) {
       }
 
       n = io->ops->read(io, buf_ptr, n);
+      // Partial read is OK.
       if (!n)
         return read;
 
       if (buffered) {
-        io->inptr = buf_ptr;
         io->in = n;
       } else {
         buffer += n;
