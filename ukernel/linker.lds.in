@@ -1,0 +1,122 @@
+
+#include <config.h>
+
+OUTPUT_ARCH(aarch64)
+ENTRY(_start)
+
+SECTIONS
+{
+  . = 0;
+
+  __image_start = .;
+
+  .text : ALIGN(16) {
+    __text_start = .;
+    KEEP(*(.text.start))
+    *(.text .text.*)
+    __text_end = .;
+  }
+
+  .rodata : ALIGN(16) {
+    __rodata_start = .;
+    *(.rodata .rodata.*)
+    __rodata_end = .;
+  }
+
+  /* Exception handling and unwinding info. */
+  .eh_frame_hdr : ALIGN(8) {
+    __eh_frame_hdr_start = .;
+    KEEP(*(.eh_frame_hdr))
+    __eh_frame_hdr_end = .;
+  }
+
+  .eh_frame : ALIGN(8) {
+    __eh_frame_start = .;
+    KEEP(*(.eh_frame))
+    KEEP(*(.eh_frame.*))
+    __eh_frame_end = .;
+  }
+
+  .gcc_except_table : ALIGN(8) {
+    *(.gcc_except_table .gcc_except_table.*)
+  }
+
+  /* START RELRO. */
+  /* GNU_RELRO. */
+
+  /* C++ static initialization arrays. */
+  .init_array : ALIGN(8) {
+    __init_array_start = .;
+    KEEP(*(.init_array .init_array.*))
+    __init_array_end = .;
+  }
+
+  .fini_array : ALIGN(8) {
+    __fini_array_start = .;
+    KEEP(*(.fini_array .fini_array.*))
+    __fini_array_end = .;
+  }
+
+  .got : ALIGN(8) {
+    __got_start = .;
+    *(.got .got.*)
+    __got_end = .;
+  }
+
+  /* END RELRO. */
+
+  /* START DATA (RW). */
+
+  .data : ALIGN(16) {
+    __data_start = .;
+    *(.data .data.*)
+    __data_end = .;
+  }
+
+  .bss (NOLOAD) : ALIGN(16) {
+    __bss_start = .;
+    /* Keep initial stack in .bss; others allocated from aligned_alloc(). */
+    __stack_bottom = .;
+    . += UKERNEL_STACK_SIZE;
+    __stack_top = .;
+    *(.bss .bss.*)
+    *(COMMON)
+    __bss_end = .;
+  }
+
+  /* END DATA. */
+
+  /* Dynamic relocation for self relocator. */
+  .rela.dyn : ALIGN(8) {
+    __rela_dyn_start = .;
+    *(.rela.dyn .rela.*)
+    __rela_dyn_end = .;
+  }
+
+  __image_end = .;
+
+  .symtab         0 : { *(.symtab) }
+  .strtab         0 : { *(.strtab) }
+  .shstrtab       0 : { *(.shstrtab) }
+  /* Keep debug info.  */
+  .debug_addr     0 : { *(.debug_addr) }
+  .debug_aranges  0 : { *(.debug_aranges) }
+  .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
+  .debug_abbrev   0 : { *(.debug_abbrev) }
+  .debug_line     0 : { *(.debug_line .debug_line.* .debug_line_str) }
+  .debug_str      0 : { *(.debug_str .debug_str.* .debug_str_offsets) }
+  .debug_ranges   0 : { *(.debug_ranges) }
+  .debug_rnglists 0 : { *(.debug_rnglists .debug_rnglists.*) }
+  .debug_loc      0 : { *(.debug_loc .debug_loclists .debug_loclists.*) }
+  .debug_frame    0 : { *(.debug_frame) }
+  .gnu_debuglink  0 : { *(.gnu_debuglink) }
+  .gnu_debugdata  0 : { *(.gnu_debugdata) }
+
+  /DISCARD/ : {
+    *(.comment)
+    *(.note*)
+    *(.dynamic)
+    *(.dynsym) *(.dynstr)
+    *(.hash) *(.gnu.hash)
+  }
+}

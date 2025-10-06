@@ -13,6 +13,11 @@ add_library(c_shim STATIC)
 
 target_sources(c_shim PRIVATE ${C_SHIM_SOURCES})
 
+# Build a PIC c_shim.
+set_target_properties(c_shim PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+)
+
 # Expose c_shim headers.
 target_include_directories(c_shim PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
