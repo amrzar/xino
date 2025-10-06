@@ -2,6 +2,23 @@
 #define CONFIG_H
 
 /* xino heap size. */
-#define C_SHIM_HEAP_SIZE  @C_SHIM_HEAP_SIZE@
+#define C_SHIM_HEAP_SIZE @C_SHIM_HEAP_SIZE@
+
+/* uKernel: */
+
+/* Page granule and size. */
+#cmakedefine UKERNEL_PAGE_4K
+#cmakedefine UKERNEL_PAGE_16K
+#define UKERNEL_VA_BITS @UKERNEL_VA_BITS@
+
+/* uKernel base address, see reloc.c. */
+#define UKERNEL_BASE @UKERNEL_BASE@
+#define UKERNEL_STACK_SIZE @UKERNEL_STACK_SIZE@
+
+/* Hardware: */
+
+/* UART Configuration. */
+#define UKERNEL_UART_DRIVER @UKERNEL_UART_DRIVER@
+#define UKERNEL_UART_BASE @UKERNEL_UART_BASE@
 
 #endif /* CONFIG_H */

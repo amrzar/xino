@@ -16,12 +16,14 @@ set(CMAKE_C_EXTENSIONS OFF) # no gnu99; keep it portable C11.
 # NONE.
 
 add_library(xino_build_flags INTERFACE)
+
 # Shared compile flags.
 target_compile_options(xino_build_flags INTERFACE
   -ffreestanding
   -fdata-sections
   -ffunction-sections
   -fno-stack-protector
+  -mgeneral-regs-only
 )
 
 # Sub-directories; should be before configure_file().
@@ -34,12 +36,13 @@ configure_file(
   @ONLY
 )
 
+# cmake --build ... --target style.
 find_program(CLANG_FORMAT_EXE NAMES clang-format)
 if (CLANG_FORMAT_EXE)
   add_custom_target(style
     COMMAND find c_shim ukernel
       # Format (*.h, *.c, *.cpp, and *.hpp files).
-      -regextype posix-extended -type f -regex ".*\.(c|h|cpp|hpp|S)$"
+      -regextype posix-extended -type f -regex ".*\.(c|h|cpp|hpp)$"
       -exec "${CLANG_FORMAT_EXE}" -i {} +
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     VERBATIM

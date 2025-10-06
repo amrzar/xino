@@ -38,13 +38,14 @@ int vfprintf(FILE *stream, const char *fmt, va_list ap) {
 }
 
 int fprintf(FILE *stream, const char *fmt, ...) {
-  va_list ap;
+  int ret;
 
+  va_list ap;
   va_start(ap, fmt);
-  int r = vfprintf(stream, fmt, ap);
+  ret = vfprintf(stream, fmt, ap);
   va_end(ap);
 
-  return r;
+  return ret;
 }
 
 int fflush(FILE *stream) {
@@ -66,4 +67,66 @@ size_t fwrite(const void *ptr, size_t size, size_t nitems, FILE *stream) {
   _IO_BUFFER io = stream;
 
   return __iob_write(io, ptr, size * nitems);
+}
+
+/* stderr and stdout. */
+
+size_t iob_write_stdout(struct io_buffer *io, const char *buf, size_t count)
+    __attribute__((weak));
+
+static int iob_flush_stdout(struct io_buffer *io) {
+  (void)io;
+  // NOTHING TO DO.
+  return 0;
+}
+
+static struct io_buffer_ops stdout_ops = {
+    .write = iob_write_stdout,
+    .flush = iob_flush_stdout,
+};
+
+static struct io_buffer __stdout = {
+    .mode = _IONBF,
+    // iob.io.buf_size == 0, bypass iob.io.buffer.
+    .buf_size = 0,
+    // iob.io.io_unget_slop == 0, no ____iob_read() and __iob_ungetc().
+    .io_unget_slop = 0,
+    .ops = &stdout_ops,
+};
+
+FILE *const stdout = &__stdout;
+
+size_t iob_write_stderr(struct io_buffer *io, const char *buf, size_t count)
+    __attribute__((weak));
+
+static int iob_flush_stderr(struct io_buffer *io) {
+  (void)io;
+  // NOTHING TO DO.
+  return 0;
+}
+
+static struct io_buffer_ops stderr_ops = {
+    .write = iob_write_stderr,
+    .flush = iob_flush_stderr,
+};
+
+static struct io_buffer __stderr = {
+    .mode = _IONBF,
+    // iob.io.buf_size == 0, bypass iob.io.buffer.
+    .buf_size = 0,
+    // iob.io.io_unget_slop == 0, no ____iob_read() and __iob_ungetc().
+    .io_unget_slop = 0,
+    .ops = &stderr_ops,
+};
+
+FILE *const stderr = &__stderr;
+
+/* Default writers. */
+
+size_t iob_write_stdout(struct io_buffer *io, const char *buf, size_t count) {
+  return count;
+}
+
+size_t iob_write_stderr(struct io_buffer *io, const char *buf, size_t count) {
+  return count;
 }

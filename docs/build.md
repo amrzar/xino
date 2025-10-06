@@ -1,4 +1,4 @@
-# Build Instruction
+# Build Instructions
 
 This guide assumes you are using a Ubuntu host.
 
@@ -7,6 +7,7 @@ This guide assumes you are using a Ubuntu host.
 ```bash
 sudo apt update
 sudo apt install build-essential cmake git
+sudo apt install cmake-curses-gui
 ```
 ## Environment variables
 
@@ -24,16 +25,15 @@ export LLVM_INSTALL_DIR=$XINO/llvm
 git clone --depth 1 https://github.com/llvm/llvm-project.git
 cd llvm-project
 
-mkdir build-llvm && cd build-llvm
-cmake -G "Unix Makefiles" ../llvm \
+cmake -S llvm -B build-llvm -G "Unix Makefiles" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=$LLVM_INSTALL_DIR \
   -DLLVM_TARGETS_TO_BUILD=AArch64 \
   -DLLVM_ENABLE_PROJECTS="clang;lld" \
   -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-none-elf
 
-make -j$(nproc)
-make install
+cmake --build build-llvm -j$(nproc)
+cmake --install build-llvm
 
 export PATH=$LLVM_INSTALL_DIR/bin:$PATH
 ```
@@ -65,8 +65,7 @@ make install-headers
 https://clang.llvm.org/docs/Toolchain.html
 
 ```bash
-mkdir build-runtimes && cd build-runtimes
-cmake -G "Unix Makefiles" ../runtimes \
+cmake -S runtimes -B build-runtimes -G "Unix Makefiles" \
   -DCMAKE_SYSTEM_NAME=Generic \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=$XINO_SYSROOT \
@@ -111,12 +110,14 @@ cmake -G "Unix Makefiles" ../runtimes \
   -DCOMPILER_RT_BUILD_XRAY=OFF \
   -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON \
   -DCOMPILER_RT_OS_DIR=. \
-  -DCMAKE_C_FLAGS="-D_SYS_SYSCALL_H -D_POSIX_SOURCE" \
-  -DCMAKE_CXX_FLAGS="-D_SYS_SYSCALL_H -D_POSIX_SOURCE -DELAST=4095" \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+  -DCMAKE_C_FLAGS="-fPIC -D_SYS_SYSCALL_H -D_POSIX_SOURCE" \
+  -DCMAKE_CXX_FLAGS="-fPIC -D_SYS_SYSCALL_H -D_POSIX_SOURCE -DELAST=4095" \
+  -DCMAKE_ASM_FLAGS="-fPIC" \
   -Wno-dev
 
-make -j$(nproc)
-make install
+cmake --build build-runtimes -j$(nproc)
+cmake --install build-runtimes
 ```
 
 ## Build xino
@@ -124,16 +125,29 @@ make install
 ```bash
 git clone https://github.com/amrzar/xino.git
 cd xino
+```
 
-mkdir build && cd build
-cmake -G "Unix Makefiles" .. \
+### Configure
+
+```bash
+cmake -S . -B build-xino -G "Unix Makefiles" \
   -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake \
   -DCMAKE_INSTALL_PREFIX=$XINO
 
-make -j$(nproc)
+ccmake build-xino
+```
+
+### Build
+
+```bash
+cmake --build build-xino -j$(nproc)
 ```
 
 ### Debugging
 - `-DCMAKE_VERBOSE_MAKEFILE=ON` to see the full command line.
 - `-DCMAKE_FIND_DEBUG_MODE=ON` to see the search paths for the libraries and binaries.
 - `-DCMAKE_BUILD_TYPE=Debug` to enable debug symbols in the final binary.
+
+## Run xino
+
+- [QEMU Platform](plat-qemu.md)

@@ -13,7 +13,7 @@
  */
 
 #include <stddef.h>
-#include <string.h> // for strlen and strncmp
+#include <string.h> // for strlen and strncmp.
 
 /**
  * @brief Static environment variable list.
@@ -54,7 +54,7 @@ char *getenv(const char *name) {
  * @note This function never returns.
  */
 __attribute__((noreturn)) void abort(void) {
-  while (1)
+  for (;;)
     __asm__ __volatile__("wfe");
 }
 

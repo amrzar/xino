@@ -5,8 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Configurations:
-
-# NONE.
+include(config.cmake)
 
 # Generate linker script.
 set(UKERNEL_LDS_IN "${CMAKE_CURRENT_SOURCE_DIR}/linker.lds.in")
@@ -17,6 +16,7 @@ add_custom_command(
   COMMAND "${CMAKE_C_COMPILER}"
     -E -P -xc "${UKERNEL_LDS_IN}"
     -o "${UKERNEL_LDS_OUT}"
+    -I "${CMAKE_BINARY_DIR}/include"  # for generated config.h (from top-level).
   DEPENDS "${UKERNEL_LDS_IN}"
 )
 
@@ -39,12 +39,13 @@ set_target_properties(ukernel PROPERTIES
 )
 
 add_dependencies(ukernel gen_ukernel_linker_script)
-# Ensure to relink when it changes.
+
+# Ensure to relink when ${UKERNEL_LDS_IN} changes.
 set_property(TARGET ukernel APPEND PROPERTY LINK_DEPENDS "${UKERNEL_LDS_OUT}")
 
 target_include_directories(ukernel PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
-  "${CMAKE_BINARY_DIR}/include"   # for generated config.h (from top-level).
+  "${CMAKE_BINARY_DIR}/include"       # for generated config.h (from top-level).
   "${CMAKE_BINARY_DIR}/ukernel/include"
 )
 
@@ -54,17 +55,22 @@ target_link_libraries(ukernel PRIVATE
 )
 
 target_compile_options(ukernel PRIVATE
-  $<$<COMPILE_LANGUAGE:CXX>:-fexceptions;-frtti>
+  -fpie
+  $<$<COMPILE_LANGUAGE:CXX>:-fexceptions;-frtti; -fno-threadsafe-statics>
 )
 
 target_link_options(ukernel PRIVATE
+  -fuse-ld=lld
   -nostdlib
   -static
-  -fuse-ld=lld
+  # Pure linker options.
+  LINKER:--pie
+  LINKER:--eh-frame-hdr
   LINKER:-T,${UKERNEL_LDS_OUT}
   LINKER:--gc-sections
-  LINKER:-Map,${CMAKE_CURRENT_BINARY_DIR}/ukernel.map
   LINKER:--no-undefined
+  LINKER:--orphan-handling=error
+  LINKER:--Map=${CMAKE_CURRENT_BINARY_DIR}/ukernel.map
 )
 
 # Runtime libraries.
@@ -80,5 +86,18 @@ target_link_libraries(ukernel PRIVATE
   ${UNWIND_LIB}
   ${BUILTINS_LIB}
 )
+
+set(UKERNEL_BIN "${CMAKE_CURRENT_BINARY_DIR}/ukernel.bin")
+
+add_custom_command(
+  OUTPUT "${UKERNEL_BIN}"
+  COMMAND "${CMAKE_OBJCOPY}"
+    -O binary "$<TARGET_FILE:ukernel>" "${UKERNEL_BIN}"
+  DEPENDS ukernel
+  VERBATIM
+)
+
+# By default also generate the bin file.
+add_custom_target(ukernel_bin ALL DEPENDS "${UKERNEL_BIN}")
 
 install(TARGETS ukernel RUNTIME DESTINATION bin)
