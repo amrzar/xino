@@ -22,7 +22,7 @@
 #include <config.h> // for UKERNEL_UART_DRIVER and UKERNEL_UART_BASE.
 #include <cstdint>
 
-namespace uart {
+namespace xino::plat::uart {
 
 /**
  * @class PL011
@@ -78,6 +78,6 @@ public:
 
 /* Build time selected UART backend alias. */
 using driver = UKERNEL_UART_DRIVER;
-}; // namespace uart
+} // namespace xino::plat::uart
 
 #endif // __UART_HPP__

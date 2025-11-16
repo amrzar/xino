@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <uart.hpp>
 
-namespace uart {
+namespace xino::plat::uart {
 
 /* PL011. */
 
@@ -37,26 +37,30 @@ void PL011::putc(char c) noexcept {
 
 /* xxx_uart. */
 
-}; // namespace uart
+} // namespace xino::plat::uart
 
 extern "C" {
-void uart_setup(void) { uart::driver::init(UKERNEL_UART_BASE, true); }
+void uart_setup(void) {
+  xino::plat::uart::driver::init(UKERNEL_UART_BASE, true);
+}
 
-void uart_set_base(std::uintptr_t base) { uart::driver::set_base(base); }
+void uart_set_base(std::uintptr_t base) {
+  xino::plat::uart::driver::set_base(base);
+}
 
 /* Override stdio.h weak writers. */
 
 size_t iob_write_stdout(struct io_buffer *io, const char *buf, size_t count) {
   (void)io;
   for (int i = 0; i < count; i++)
-    uart::driver::putc(buf[i]);
+    xino::plat::uart::driver::putc(buf[i]);
   return count;
 }
 
 size_t iob_write_stderr(struct io_buffer *io, const char *buf, size_t count) {
   (void)io;
   for (int i = 0; i < count; i++)
-    uart::driver::putc(buf[i]);
+    xino::plat::uart::driver::putc(buf[i]);
   return count;
 }
 }
