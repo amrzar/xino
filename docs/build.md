@@ -150,4 +150,4 @@ cmake --build build-xino -j$(nproc)
 
 ## Run xino
 
-- [QEMU Platform](plat-qemu.md)
+- [QEMU Platform](qemu.md)

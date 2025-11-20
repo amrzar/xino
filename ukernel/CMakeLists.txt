@@ -30,9 +30,9 @@ set(UKERNEL_REGHPP "${CMAKE_BINARY_DIR}/include/regs.hpp")
 add_custom_command(
   OUTPUT "${UKERNEL_REGHPP}"
   COMMAND python3 "${UKERNEL_REGTOOL}"
-    -i "${CMAKE_CURRENT_SOURCE_DIR}/specs.json"
+    -i "${CMAKE_CURRENT_SOURCE_DIR}/specs/sysregs"
     -o "${UKERNEL_REGHPP}"
-  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/specs.json"
+  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/specs/sysregs"
   VERBATIM
 )
 
