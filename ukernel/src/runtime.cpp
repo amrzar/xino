@@ -3,18 +3,18 @@
 #include <new>
 
 extern "C" {
-typedef void (*ctor_t)(void);
+typedef void (*ctor_t)();
 extern ctor_t __init_array_start[], __init_array_end[];
 extern ctor_t __fini_array_start[], __fini_array_end[];
 }
 
-static void run_init_array(void) {
+static void run_init_array() {
   for (auto p = __init_array_start; p != __init_array_end; ++p)
     if (*p)
       (*p)();
 }
 
-static void run_fini_array(void) {
+static void run_fini_array() {
   for (auto p = __fini_array_start; p != __fini_array_end; ++p)
     if (*p)
       (*p)();
@@ -27,19 +27,19 @@ extern char __eh_frame_start[], __eh_frame_end[];
 extern "C" void __register_frame(void *) __attribute__((weak));
 extern "C" void __deregister_frame(void *) __attribute__((weak));
 
-static void register_eh_frames(void) {
+static void register_eh_frames() {
   if (__register_frame)
     __register_frame(__eh_frame_start);
 }
 
-static void deregister_eh_frames(void) {
+static void deregister_eh_frames() {
   if (__deregister_frame)
     __deregister_frame(__eh_frame_start);
 }
 
-void main(void);
+void main();
 
-extern "C" void ukernel_entry(void) {
+extern "C" void ukernel_entry() {
   register_eh_frames();
   run_init_array();
   main();

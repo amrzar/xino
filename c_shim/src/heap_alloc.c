@@ -92,7 +92,7 @@ static LIST_HEAD(block_list_head, block_header)
  *
  * Called automatically via the constructor attribute.
  */
-__attribute__((constructor)) static void init_heap(void) {
+__attribute__((constructor)) static void init_heap() {
   struct block_header *xh_b = (struct block_header *)xino_heap;
 
   LIST_INSERT_HEAD(&free_block_list, xh_b, node);

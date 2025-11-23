@@ -50,11 +50,11 @@ typedef struct {
 extern char __image_start[];
 extern Elf64_Rela __rela_dyn_start[], __rela_dyn_end[];
 
-static inline uintptr_t load_phys_base(void) {
+static inline uintptr_t load_phys_base() {
   return (uintptr_t)__image_start; /* Physical (or identity-mapped) base. */
 }
 
-static void apply_rela(void) {
+static void apply_rela() {
   uintptr_t phys_base = load_phys_base();
   Elf64_Rela *rela;
 
@@ -70,4 +70,4 @@ static void apply_rela(void) {
   }
 }
 
-void ukernel_apply_relocations(void) { apply_rela(); }
+void ukernel_apply_relocations() { apply_rela(); }
