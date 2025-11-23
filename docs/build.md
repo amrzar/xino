@@ -1,6 +1,6 @@
 # Build Instructions
 
-This guide assumes you are using a Ubuntu host.
+This guide assumes you are using an Ubuntu host.
 
 ## Prerequisites
 
@@ -9,6 +9,7 @@ sudo apt update
 sudo apt install build-essential cmake git
 sudo apt install cmake-curses-gui
 ```
+
 ## Environment variables
 
 ```bash
@@ -32,7 +33,7 @@ cmake -S llvm -B build-llvm -G "Unix Makefiles" \
   -DLLVM_ENABLE_PROJECTS="clang;lld" \
   -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-none-elf
 
-cmake --build build-llvm -j$(nproc)
+cmake --build build-llvm -j"$(nproc)"
 cmake --install build-llvm
 
 export PATH=$LLVM_INSTALL_DIR/bin:$PATH
@@ -55,14 +56,15 @@ make install-headers
 
 ## Build runtime libraries
 
-| Component | Role |
-| - | - |
+| Component      | Role                                                                 |
+| ------------- | -------------------------------------------------------------------- |
 | **compiler-rt** | Implements low-level builtins (e.g. `__divti3`, `__udivdi3`) needed by Clang/LLVM. |
-| **libunwind** | Handles stack unwinding for exceptions. |
+| **libunwind** | Handles stack unwinding for exceptions.                              |
 | **libc++abi** | Provides C++ runtime support: exception handling, RTTI, `new`/`delete`, etc. |
-| **libc++** | Standard C++ library (e.g. `std::vector`, `std::string`). Optional if not using STL. |
+| **libc++**    | Standard C++ library (e.g. `std::vector`, `std::string`). Optional if not using STL. |
 
-https://clang.llvm.org/docs/Toolchain.html
+See also the Clang toolchain documentation:
+<https://clang.llvm.org/docs/Toolchain.html>
 
 ```bash
 cmake -S runtimes -B build-runtimes -G "Unix Makefiles" \
@@ -116,7 +118,7 @@ cmake -S runtimes -B build-runtimes -G "Unix Makefiles" \
   -DCMAKE_ASM_FLAGS="-fPIC" \
   -Wno-dev
 
-cmake --build build-runtimes -j$(nproc)
+cmake --build build-runtimes -j"$(nproc)"
 cmake --install build-runtimes
 ```
 
@@ -140,14 +142,18 @@ ccmake build-xino
 ### Build
 
 ```bash
-cmake --build build-xino -j$(nproc)
+cmake --build build-xino -j"$(nproc)"
 ```
 
 ### Debugging
+
 - `-DCMAKE_VERBOSE_MAKEFILE=ON` to see the full command line.
-- `-DCMAKE_FIND_DEBUG_MODE=ON` to see the search paths for the libraries and binaries.
-- `-DCMAKE_BUILD_TYPE=Debug` to enable debug symbols in the final binary.
+- `-DCMAKE_FIND_DEBUG_MODE=ON` to see the search paths for libraries
+  and binaries.
+- `-DCMAKE_BUILD_TYPE=Debug` to enable debug symbols in the final
+  binary.
 
 ## Run xino
 
-- [QEMU Platform](qemu.md)
+- [QEMU Platform](plat/qemu.md)
+- [Radxa ROCK 5B+ Platform](plat/rock5b.md)
