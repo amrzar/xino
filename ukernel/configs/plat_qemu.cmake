@@ -1,0 +1,4 @@
+# ukernel/configs/plat_qemu.cmake
+
+set(UKERNEL_UART_DRIVER "PL011" CACHE INTERNAL "UART driver" FORCE)
+set(UKERNEL_UART_BASE "0x9000000" CACHE INTERNAL "UART base" FORCE)

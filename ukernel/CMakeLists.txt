@@ -4,11 +4,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Configurations:
+# Configurations (ukernel and platform).
 include(config.cmake)
 
 # Generate linker script.
-set(UKERNEL_LDS_IN "${CMAKE_CURRENT_SOURCE_DIR}/linker.lds.in")
+set(UKERNEL_LDS_IN "${CMAKE_CURRENT_SOURCE_DIR}/linker.ldspp")
 set(UKERNEL_LDS_OUT "${CMAKE_CURRENT_BINARY_DIR}/linker.lds")
 
 add_custom_command(
@@ -30,9 +30,9 @@ set(UKERNEL_REGHPP "${CMAKE_BINARY_DIR}/include/regs.hpp")
 add_custom_command(
   OUTPUT "${UKERNEL_REGHPP}"
   COMMAND python3 "${UKERNEL_REGTOOL}"
-    -i "${CMAKE_CURRENT_SOURCE_DIR}/specs/sysregs"
+    -i "${CMAKE_CURRENT_SOURCE_DIR}/spec_sysregs"
     -o "${UKERNEL_REGHPP}"
-  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/specs/sysregs"
+  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/spec_sysregs"
   VERBATIM
 )
 
