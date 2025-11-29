@@ -91,7 +91,7 @@ int snprintf(char *str, size_t size, const char *fmt, ...) {
   iob.io.mode = _IONBF;
   // iob.io.buf_size == 0, bypass iob.io.buffer.
   iob.io.ops = &ops;
-  // iob.io.io_unget_slop == 0, no ____iob_read() and __iob_ungetc().
+  // iob.io.io_unget_slop == 0, no __iob_read() and __iob_ungetc().
 
   va_list ap;
   va_start(ap, fmt);
