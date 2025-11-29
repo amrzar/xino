@@ -87,9 +87,9 @@ static struct io_buffer_ops stdout_ops = {
 
 static struct io_buffer __stdout = {
     .mode = _IONBF,
-    // iob.io.buf_size == 0, bypass iob.io.buffer.
+    // Bypass iob.io.buffer.
     .buf_size = 0,
-    // iob.io.io_unget_slop == 0, no ____iob_read() and __iob_ungetc().
+    // No __iob_read() and __iob_ungetc().
     .io_unget_slop = 0,
     .ops = &stdout_ops,
 };
@@ -112,9 +112,9 @@ static struct io_buffer_ops stderr_ops = {
 
 static struct io_buffer __stderr = {
     .mode = _IONBF,
-    // iob.io.buf_size == 0, bypass iob.io.buffer.
+    // Bypass iob.io.buffer.
     .buf_size = 0,
-    // iob.io.io_unget_slop == 0, no ____iob_read() and __iob_ungetc().
+    // No __iob_read() and __iob_ungetc().
     .io_unget_slop = 0,
     .ops = &stderr_ops,
 };

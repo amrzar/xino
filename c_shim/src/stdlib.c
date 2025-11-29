@@ -53,7 +53,7 @@ char *getenv(const char *name) {
  *
  * @note This function never returns.
  */
-__attribute__((noreturn)) void abort(void) {
+__attribute__((noreturn)) void abort() {
   for (;;)
     __asm__ __volatile__("wfe");
 }
