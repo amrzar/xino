@@ -145,6 +145,14 @@ ccmake build-xino
 cmake --build build-xino -j"$(nproc)"
 ```
 
+This will produce the `build-xino/ukernel/ukernel.elf` and `build-xino/ukernel/xino.bin`.
+
+### Install `ukernel.elf` and `xino.bin`
+
+```bash
+cmake --install build-xino
+```
+
 ### Debugging
 
 - `-DCMAKE_VERBOSE_MAKEFILE=ON` to see the full command line.
