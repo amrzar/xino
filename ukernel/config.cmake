@@ -20,7 +20,7 @@ set(UKERNEL_STACK_SIZE "0x4000" CACHE STRING "Stack size (16-byte aligned)")
 # Platform:
 
 set(UKERNEL_PLATFORM "qemu" CACHE STRING "Target platform")
-set_property(CACHE UKERNEL_PLATFORM PROPERTY STRINGS qemu rock5bplus)
+set_property(CACHE UKERNEL_PLATFORM PROPERTY STRINGS qemu rock5b)
 
 # Platform configutaions
 
@@ -28,7 +28,7 @@ set_property(CACHE UKERNEL_PLATFORM PROPERTY STRINGS qemu rock5bplus)
 if(UKERNEL_PLATFORM STREQUAL "qemu")
 include(configs/plat_qemu.cmake)
 # Platform == Rock 5B+
-elseif(UKERNEL_PLATFORM STREQUAL "rock5bplus")
+elseif(UKERNEL_PLATFORM STREQUAL "rock5b")
 include(configs/plat_rock5b.cmake)
 else()
   message(FATAL_ERROR "Unknown UKERNEL_PLATFORM='${UKERNEL_PLATFORM}'")
