@@ -14,9 +14,6 @@ else() # Default is standalone.
   set(UKERNEL_VA_BITS "39" CACHE INTERNAL "" FORCE)
 endif()
 
-set(UKERNEL_BASE "0x40200000" CACHE STRING "uKernel base")
-set(UKERNEL_STACK_SIZE "0x4000" CACHE STRING "Stack size (16-byte aligned)")
-
 # Platform:
 
 set(UKERNEL_PLATFORM "qemu" CACHE STRING "Target platform")
