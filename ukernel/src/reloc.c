@@ -13,8 +13,15 @@
  *  - For each `Elf64_Rela` with type `R_AARCH64_RELATIVE`, stores:
  *
  *   @code
- *   *(uint64_t *)(rela->r_offset + phys_base) = rela->r_addend + UKERNEL_BASE;
+ *   *(uint64_t *)(rela->r_offset + phys_base) = rela->r_addend + bias;
  *   @endcode
+ *
+ *  - For `R_AARCH64_RELATIVE`, `rela->r_addend` encodes (effectively) the
+ *    link-time virtual address of the target object within the same image.
+ *  - This adds the load bias (difference between load address and link-time
+ *    base) to `rela->r_addend` to obtain the real runtime address.
+ *  - Since ukernel is linked with `VMA = 0`, `rela->r_addend` is just an
+ *    offset within the image, and the load `bias` is `UKERNEL_BASE`.
  *
  * This file is **PIC by nature**
  * - It is plain C with no global address constants stored in data,
