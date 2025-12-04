@@ -34,8 +34,8 @@ Arm Trusted Firmware-A defines these logical stages:
 
 ## U-Boot + TF-A overview
 
-- TPL/SPL are built from U-Boot source (except DDR TPL for rk35xx which
-  is still external).
+- TPL/SPL are built from U-Boot source (except DDR TPL for `rk35xx`
+  which is still external).
 - BL31/BL32 are from TF-A source.
 - Everything gets packed by `binman` into `u-boot-rockchip.bin`.
 
@@ -53,7 +53,7 @@ File | What it is | Stage
 
 #### Notes
 
-For RK35xx (RK3568/RK3588), mainline U-Boot still can’t do DDR init
+For `rk35xx` (RK3568/RK3588), mainline U-Boot still can’t do DDR init
 itself, so it needs an external TPL binary (from
 [`rkbin`](https://github.com/radxa/rkbin.git)) using `ROCKCHIP_TPL=`.
 `binman` embeds that as the TPL part in `u-boot-rockchip.bin`.
@@ -67,21 +67,66 @@ BL33 (U-Boot proper)**
 
 ### Prerequisites
 
-### Build instructions
+```bash
+sudo apt update
+sudo apt install bison flex swig
+sudo apt install gcc-aarch64-linux-gnu
+sudo apt install python3-setuptools python3-pyelftools python3-dev
+sudo apt install libssl-dev libgnutls28-dev
+sudo apt install libncurses-dev     # For menuconfig
+```
+
+### Prepare build environment
 
 ```bash
 git clone --depth 1 https://github.com/radxa/rkbin.git
 
 # 1) Rockchip BL31 blob (or a TF-A BL31 build)
-export BL31=../rkbin/bin/rk35/rk3588_bl31_v1.33.elf
+export BL31=$PWD/rkbin/bin/rk35/rk3588_bl31_v1.53.elf
 
 # 2) Rockchip DDR init as external TPL
-export ROCKCHIP_TPL=../rkbin/bin/rk35/rk3588_ddr_lp4_2112MHz_lp5_2736MHz_v1.09.bin
+export ROCKCHIP_TPL=$PWD/rkbin/bin/rk35/rk3588_ddr_lp4_2112MHz_lp5_2400MHz_v1.20_20250926.bin
 
-# 3) Mainline U-Boot
+# 3) Config mainline U-Boot
 git clone --depth 1 https://source.denx.de/u-boot/u-boot.git
 cd u-boot
 make rock5b-rk3588_defconfig      # or generic-rk3588_defconfig, etc.
+```
+
+#### Enable `env save`
+
+The default U-Boot build for Rock 5B(+) does not have the `env save`
+command enabled. To enable it, run `make menuconfig` after step (3)
+above, then upadte the followong options:
+
+```text
+Environment  --->
+   [ ] Environment is not stored
+   [*] Environment in an MMC device
+```
+
+#### Enable `preboot`
+
+To enable `preboot` support, run `make menuconfig` after step (3) above, then update the following options:
+
+```text
+Boot options  --->
+   [*] Enable preboot
+```
+
+#### Enable `dcache` and `icache`
+
+To enable `dcache` and `icache` commands, run `make menuconfig` after step (3) above, then update the following options:
+
+```text
+Command line interface  --->
+   Midc commands  --->
+      [*] icache and dcache
+```
+
+### Build U-Boot
+
+```bash
 make CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)"
 ```
 
@@ -110,13 +155,18 @@ Flash `u-boot-rockchip.bin` to SD/eMMC starting at sector `64`
 (`0x40`):
 
 ```bash
-sudo dd if=u-boot-rockchip.bin of=/dev/sdX seek=64
-sync
+sudo wipefs -a /dev/mmcblk0
+sudo dd if=$PWD/u-boot/u-boot-rockchip.bin \
+        of=/dev/mmcblk0 \
+        bs=512 \
+        seek=64 \
+        conv=fsync
 ```
 
-Make sure to replace `/dev/sdX` with your actual device.
+Make sure to replace `/dev/mmcblk0` with your actual device
+(e.g. `/dev/sdX`, `/dev/mmcblk1`, etc.).
 
-## Runtime boot flow
+## Runtime boot flow to U-Boot prompt
 
 ### Stage 1 – BootROM (in SoC mask ROM)
 
@@ -199,8 +249,104 @@ available using SMC.
 From U-Boot's point of view:
 
 1. Do full board init (UART, MMC/SD, NVMe, USB, Ethernet, etc.).
-2. Boot `xino`.
+2. Boot `xino.bin`.
 
 ## Run xino
 
+### TFTP server installation
 
+```bash
+sudo apt update
+sudo apt install tftpd-hpa tftp-hpa
+```
+### TFTP server setup
+
+Edit `/etc/default/tftpd-hpa` and restart the service:
+
+```text
+TFTP_USERNAME="tftp"
+TFTP_DIRECTORY="/srv/tftp"
+TFTP_ADDRESS=":69"
+TFTP_OPTIONS="--secure"
+```
+
+```bash
+sudo systemctl restart tftpd-hpa
+# Enable it if required.
+sudo systemctl enable tftpd-hpa
+```
+
+### Set TFTP directory permissions
+
+```bash
+sudo chown tftp:tftp /srv/tftp
+sudo chmod 2775 /srv/tftp
+sudo usermod -aG tftp $USER
+```
+Log out and log back in so the new group membership is picked up.
+
+### Set up U-Boot environment
+
+```bash
+=> env set ipaddr 192.168.1.51       # board IP
+=> env set serverip 192.168.1.10     # Ubuntu/TFTP server
+=> env set netmask 255.255.255.0     # adjust if needed
+```
+
+Rock 5B(+) has a PCIe Realtek NIC (rtl8169/8125 style), not a simple
+on-SoC MAC. In mainline U-Boot, the Realtek driver is a DM PCI net
+driver (`eth_rtl8169`) that only appears once PCIe and the DM network
+stack are brought up.
+
+The PCIe NIC is *brought up for bootflow* – for sending DHCP/BOOTP
+packets – but when that boot attempt finishes, the generic `ethact` / `eth`
+list ends up empty again.
+
+To keep the *classic* workflow
+(`tftpboot ${loadaddr} xino.img; go ${loadaddr}`) working after the
+bootflow, you need to manually enumerate PCI devices and set `ethact`
+to the Realtek driver:
+
+```bash
+=> env set preboot 'pci enum'
+```
+
+### Boot xino via TFTP
+
+Copy `xino.bin` to the TFTP directory (`TFTP_DIRECTORY`).
+
+```bash
+=> env set xino_addr 0x00a00000
+=> env set xino_image xino.bin
+=> env set bootcmd 'tftpboot ${xino_addr} ${xino_image}; dcache flush; icache flush; go ${xino_addr}'
+=> env save
+```
+
+Now the boot flow is:
+
+- Power on.
+- U-Boot starts.
+- Runs `bootcmd`.
+- TFTP downloads `/srv/tftp/xino.bin` from your Ubuntu box.
+- Jumps to your EL2 entry.
+
+If you later change `xino.bin` on the Ubuntu machine, the board will
+automatically pick up the new version on next reset.
+
+## UART serial console
+
+See
+[serial console](https://docs.radxa.com/en/rock5/rock5b/radxa-os/serial?os=linux).
+
+## Building xino for Rock 5B
+
+```bash
+cmake -S . -B build-xino -G "Unix Makefiles" \
+  -DCMAKE_TOOLCHAIN_FILE=../toolchain.cmake \
+  -DCMAKE_INSTALL_PREFIX=/srv/tftp \
+  -DUKERNEL_PLATFORM=rock5b
+
+cmake --build build-xino -j"$(nproc)"
+```
+
+[[Up](build.md)]

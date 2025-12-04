@@ -103,17 +103,15 @@ target_link_libraries(ukernel PRIVATE
   ${BUILTINS_LIB}
 )
 
-set(UKERNEL_BIN "${CMAKE_CURRENT_BINARY_DIR}/ukernel.bin")
+set(XINO_BIN "${CMAKE_CURRENT_BINARY_DIR}/xino.bin")
 
 add_custom_command(
-  OUTPUT "${UKERNEL_BIN}"
+  TARGET ukernel POST_BUILD
   COMMAND "${CMAKE_OBJCOPY}"
-    -O binary "$<TARGET_FILE:ukernel>" "${UKERNEL_BIN}"
-  DEPENDS ukernel
+    -O binary "$<TARGET_FILE:ukernel>" "${XINO_BIN}"
   VERBATIM
 )
 
-# By default also generate the bin file.
-add_custom_target(ukernel_bin ALL DEPENDS "${UKERNEL_BIN}")
-
+# Install both the ukernel.elf and the xino.bin.
 install(TARGETS ukernel RUNTIME DESTINATION bin)
+install(FILES "${XINO_BIN}" DESTINATION bin)
