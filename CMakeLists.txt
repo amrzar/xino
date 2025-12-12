@@ -19,6 +19,7 @@ add_library(xino_build_flags INTERFACE)
 
 # Shared compile flags.
 target_compile_options(xino_build_flags INTERFACE
+  -Wall
   -ffreestanding
   -fdata-sections
   -ffunction-sections
