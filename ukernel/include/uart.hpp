@@ -19,9 +19,9 @@
 #ifndef __UART_HPP__
 #define __UART_HPP__
 
-#include <addr_types.hpp> // phys::addr, virt::addr.
-#include <config.h>       // for UKERNEL_UART_DRIVER and UKERNEL_UART_BASE.
+#include <config.h> // for UKERNEL_UART_DRIVER and UKERNEL_UART_BASE.
 #include <cstdint>
+#include <mm.hpp> // for phys_addr and virt_addr.
 
 namespace xino::plat::uart {
 
@@ -39,7 +39,7 @@ namespace xino::plat::uart {
 class PL011 {
 private:
   /** @brief Active MMIO base; zero means "not initialized". */
-  inline static xino::virt::addr uart_base{};
+  inline static xino::mm::virt_addr uart_base{};
 
   static volatile std::uint32_t &reg_at(std::uintptr_t off) noexcept {
     return *uart_base.as_ptr<volatile std::uint32_t>(off);
@@ -70,11 +70,11 @@ private:
 public:
   PL011() = delete;
 
-  static void init(const xino::virt::addr &new_base,
+  static void init(const xino::mm::virt_addr &new_base,
                    bool fifo = false) noexcept;
   static void putc(char c) noexcept;
   /** @brief Change the base without reprogramming (for pure VA remap). */
-  static void set_base(const xino::virt::addr &new_base) noexcept {
+  static void set_base(const xino::mm::virt_addr &new_base) noexcept {
     uart_base = new_base;
   }
 };
@@ -88,7 +88,7 @@ public:
 class DW_APB {
 private:
   /** @brief Active MMIO base; zero means "not initialized". */
-  inline static xino::virt::addr uart_base{};
+  inline static xino::mm::virt_addr uart_base{};
 
   static volatile std::uint32_t &reg_at(std::uintptr_t off) noexcept {
     return *uart_base.as_ptr<volatile std::uint32_t>(off);
@@ -120,11 +120,11 @@ private:
 public:
   DW_APB() = delete;
 
-  static void init(const xino::virt::addr &new_base,
+  static void init(const xino::mm::virt_addr &new_base,
                    bool fifo = false) noexcept;
   static void putc(char c) noexcept;
   /** @brief Change the base without reprogramming (for pure VA remap). */
-  static void set_base(const xino::virt::addr &new_base) noexcept {
+  static void set_base(const xino::mm::virt_addr &new_base) noexcept {
     uart_base = new_base;
   }
 };
