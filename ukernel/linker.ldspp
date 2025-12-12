@@ -75,7 +75,7 @@ SECTIONS
 
   .bss (NOLOAD) : ALIGN(16) {
     __bss_start = .;
-    /* Keep initial stack in .bss; others allocated from aligned_alloc(). */
+    /* Keep initial stack in .bss. */
     __stack_bottom = .;
     . += UKERNEL_STACK_SIZE;
     __stack_top = .;

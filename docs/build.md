@@ -163,5 +163,6 @@ cmake --install build-xino
 
 ## Run xino
 
-- [QEMU Platform](plat/qemu.md)
-- [Radxa ROCK 5B+ Platform](plat/rock5b.md)
+### Supported Platforms
+
+- [Radxa ROCK 5B+](plat/rock5b.md)

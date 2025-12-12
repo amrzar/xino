@@ -7,7 +7,7 @@ namespace xino::plat::uart {
 
 /* PL011. */
 
-void PL011::init(const xino::virt::addr &new_base, bool fifo) noexcept {
+void PL011::init(const xino::mm::virt_addr &new_base, bool fifo) noexcept {
   uart_base = new_base;
 
   reg_at(UARTCR) = 0;      // Disable UART.
@@ -18,7 +18,7 @@ void PL011::init(const xino::virt::addr &new_base, bool fifo) noexcept {
 }
 
 void PL011::putc(char c) noexcept {
-  if (uart_base == xino::virt::addr{})
+  if (uart_base == xino::mm::virt_addr{})
     return;
 
   if (c == '\n') {
@@ -33,7 +33,7 @@ void PL011::putc(char c) noexcept {
 
 /* DW_APB. */
 
-void DW_APB::init(const xino::virt::addr &new_base, bool fifo) noexcept {
+void DW_APB::init(const xino::mm::virt_addr &new_base, bool fifo) noexcept {
   uart_base = new_base;
 
   reg_at(IER) = 0x00;      // Disable Interrupts.
@@ -43,7 +43,7 @@ void DW_APB::init(const xino::virt::addr &new_base, bool fifo) noexcept {
 }
 
 void DW_APB::putc(char c) noexcept {
-  if (uart_base == xino::virt::addr{})
+  if (uart_base == xino::mm::virt_addr{})
     return;
 
   if (c == '\n') {
@@ -61,11 +61,11 @@ void DW_APB::putc(char c) noexcept {
 
 extern "C" {
 void uart_setup() {
-  xino::plat::uart::driver::init(xino::virt::addr{UKERNEL_UART_BASE}, true);
+  xino::plat::uart::driver::init(xino::mm::virt_addr{UKERNEL_UART_BASE}, true);
 }
 
 void uart_set_base(uintptr_t base) {
-  xino::plat::uart::driver::set_base(xino::virt::addr{base});
+  xino::plat::uart::driver::set_base(xino::mm::virt_addr{base});
 }
 
 /* Override stdio.h weak writers. */
