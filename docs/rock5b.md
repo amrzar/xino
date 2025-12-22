@@ -265,7 +265,7 @@ Edit `/etc/default/tftpd-hpa` and restart the service:
 
 ```text
 TFTP_USERNAME="tftp"
-TFTP_DIRECTORY="/srv/tftp"
+TFTP_DIRECTORY="/srv/tftp/bin"
 TFTP_ADDRESS=":69"
 TFTP_OPTIONS="--secure"
 ```
@@ -347,6 +347,7 @@ cmake -S . -B build-xino -G "Unix Makefiles" \
   -DUKERNEL_PLATFORM=rock5b
 
 cmake --build build-xino -j"$(nproc)"
+cmake --install build-xino # Put xino.bin in /srv/tftp/bin
 ```
 
 [[Up](build.md)]

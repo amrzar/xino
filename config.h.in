@@ -1,10 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-/* xino heap size. */
-#define C_SHIM_HEAP_SIZE @C_SHIM_HEAP_SIZE@
-
 /* uKernel: */
+
+#cmakedefine UKERNEL_SMP
 
 /* Page granule and size. */
 #cmakedefine UKERNEL_PAGE_4K

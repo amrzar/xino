@@ -25,14 +25,14 @@ add_custom_target(gen_ukernel_linker_script DEPENDS "${UKERNEL_LDS_OUT}")
 # Code-gen codes.
 set(UKERNEL_REGTOOL "${CMAKE_CURRENT_SOURCE_DIR}/../tools/xino_regtool.py")
 
-set(UKERNEL_SYSREGHPP "${CMAKE_BINARY_DIR}/include/sysregs.hpp")
+set(UKERNEL_SYSREGHPP "${CMAKE_BINARY_DIR}/include/regs.hpp")
 
 add_custom_command(
   OUTPUT "${UKERNEL_SYSREGHPP}"
   COMMAND python3 "${UKERNEL_REGTOOL}"
-    -i "${CMAKE_CURRENT_SOURCE_DIR}/spec_sysregs"
+    -i "${CMAKE_CURRENT_SOURCE_DIR}/regs.spec"
     -o "${UKERNEL_SYSREGHPP}"
-  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/spec_sysregs"
+  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/regs.spec"
   VERBATIM
 )
 

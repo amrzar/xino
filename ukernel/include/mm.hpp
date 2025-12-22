@@ -1,9 +1,9 @@
 /**
  * @file mm.hpp
- * @brief Core **abstract** mm types.
+ * @brief Core mm *abstract* types.
  *
- * The page-table builder and architecture-specific code translate these
- * abstract attributes into concrete AArch64 MMU bits.
+ * The page-table builder code translate abstract attributes into concrete
+ * AARCH64 MMU bits and operations.
  *
  * @author Amirreza Zarrabi
  * @date 2025
@@ -26,6 +26,8 @@ struct phys_tag {};
 struct bus_tag {};
 /** @brief Tag for virtual addresses. */
 struct virt_tag {};
+/** @brief Tag for guest intermediate physical addresses (IPA). */
+struct ipa_tag {};
 
 /**
  * @class address
@@ -50,7 +52,8 @@ public:
   /**
    * @brief Align the address *up* to @p align.
    *
-   * @param align Alignment in bytes (pre: `align != 0` and power-of-two).
+   * @param align Alignment in bytes.
+   * @pre `align != 0` and power-of-two
    * @return A new `address` rounded up to a multiple of @p align.
    *
    * @note This uses the common `(x + a - 1) & ~(a - 1)` idiom.
@@ -62,20 +65,6 @@ public:
 
   [[nodiscard]] explicit constexpr operator value_type() const noexcept {
     return addr;
-  }
-
-  /**
-   * @brief View the address (optionally offset) as a pointer to `U`.
-   *
-   * @tparam U Pointee type.
-   * @param off Optional byte offset added to the base address.
-   * @return `U *` obtained via `reinterpret_cast` from `addr + off`.
-   *
-   * @warning This does not validate mapping or alignment. Use with care.
-   */
-  template <typename U>
-  [[nodiscard]] constexpr U *as_ptr(std::uintptr_t off = 0) const noexcept {
-    return reinterpret_cast<U *>(addr + off);
   }
 
   /** @name Arithmetic ops. */
@@ -141,6 +130,8 @@ using phys_addr = address<phys_tag>;
 using bus_addr = address<bus_tag>;
 /** @brief Virtual address type. */
 using virt_addr = address<virt_tag>;
+/** @brief Intermediate address type. */
+using ipa_addr = address<ipa_tag>;
 
 /* PROTECTION FLAGS. */
 
@@ -165,14 +156,16 @@ public:
   static constexpr mask_t USER{0x8};
   static constexpr mask_t DEVICE{0x10};
   static constexpr mask_t SHARED{0x20};
+  static constexpr mask_t ALL{READ | WRITE | EXEC | USER | DEVICE | SHARED};
   ///@}
 
   /** @brief Construct with no flags set. */
   constexpr prot() noexcept = default;
 
-  /** @brief Return the raw bitmask. */
-  constexpr prot(mask_t f) noexcept : flags{f} {}
+  /** @brief Construct with flags set (mask out unsupported flags). */
+  constexpr prot(mask_t f) noexcept : flags{static_cast<mask_t>(f & ALL)} {}
 
+  /** @brief Return the raw bitmask. */
   [[nodiscard]] constexpr mask_t raw() const noexcept { return flags; }
 
   /**
@@ -221,7 +214,5 @@ private:
 };
 
 } // namespace xino::mm
-
-/* TLB MAINTENANCE. */
 
 #endif // __MM_HPP__

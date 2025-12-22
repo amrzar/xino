@@ -15,8 +15,8 @@
  *   - Reads: barrier after the load (`xino::barrier::iormb()`).
  *   - Writes: barrier before the store (`xino::barrier::iowmb()`).
  *
- * - **Sized helpers**: `xino::io::read{b,w,l,q}` and
- * `xino::io::write{b,w,l,q}`.
+ * - **Sized helpers**: `xino::io::read{b,w,l,q}`, `xino::io::write{b,w,l,q}`,
+ *   `xino::io::read_relaxed{b,w,l,q}`, and `xino::io::write_relaxed{b,w,l,q}`
  *
  * @note This assumes MMIO mappings are Device-nGnRE/nGnRnE.
  *
@@ -27,12 +27,12 @@
 #ifndef __IO_HPP__
 #define __IO_HPP__
 
-#include <barrier.hpp>
-#include <mm.hpp>
+#include <barrier.hpp> // for barrier(), iormb(), and iowmb().
+#include <mm.hpp>      // for virt_addr.
 #include <type_traits>
 
 namespace xino::io {
-
+// mmio_addr_t is virtual address typically after mapping tough appropriate API.
 using mmio_addr_t = xino::mm::virt_addr;
 
 /**
@@ -60,7 +60,7 @@ concept mmio_ok_v =
  */
 template <mmio_ok_v T>
 [[gnu::always_inline]] inline volatile T *ptr(mmio_addr_t addr) noexcept {
-  return addr.as_ptr<volatile T>();
+  return reinterpret_cast<volatile T *>(static_cast<std::uintptr_t>(addr));
 }
 
 template <mmio_ok_v T>
@@ -152,9 +152,62 @@ template <mmio_ok_v T>
   write_relaxed<T>(addr, value);
 }
 
+/** @name Relaxed MMIO reads. */
+///@{
+// Ordered 8-bit MMIO read.
+[[gnu::always_inline]] inline std::uint8_t
+readb_relaxed(mmio_addr_t addr) noexcept {
+  return read_relaxed<std::uint8_t>(addr);
+}
+
+// Ordered 16-bit MMIO read.
+[[gnu::always_inline]] inline std::uint16_t
+readw_relaxed(mmio_addr_t addr) noexcept {
+  return read_relaxed<std::uint16_t>(addr);
+}
+
+// Ordered 32-bit MMIO read.
+[[gnu::always_inline]] inline std::uint32_t
+readl_relaxed(mmio_addr_t addr) noexcept {
+  return read_relaxed<std::uint32_t>(addr);
+}
+
+// rdered 64-bit MMIO read.
+[[gnu::always_inline]] inline std::uint64_t
+readq_relaxed(mmio_addr_t addr) noexcept {
+  return read_relaxed<std::uint64_t>(addr);
+}
+///@}
+
+/** @name Relaxed MMIO writes. */
+///@{
+// Ordered 8-bit MMIO write.
+[[gnu::always_inline]] inline void writeb_relaxed(std::uint8_t value,
+                                                  mmio_addr_t addr) noexcept {
+  write_relaxed<std::uint8_t>(addr, value);
+}
+
+// Ordered 16-bit MMIO write.
+[[gnu::always_inline]] inline void writew_relaxed(std::uint16_t value,
+                                                  mmio_addr_t addr) noexcept {
+  write_relaxed<std::uint16_t>(addr, value);
+}
+
+// Ordered 32-bit MMIO write.
+[[gnu::always_inline]] inline void writel_relaxed(std::uint32_t value,
+                                                  mmio_addr_t addr) noexcept {
+  write_relaxed<std::uint32_t>(addr, value);
+}
+
+// Ordered 64-bit MMIO write.
+[[gnu::always_inline]] inline void writeq_relaxed(std::uint64_t value,
+                                                  mmio_addr_t addr) noexcept {
+  write_relaxed<std::uint64_t>(addr, value);
+}
+///@}
+
 /** @name Ordered MMIO reads. */
 ///@{
-
 // Ordered 8-bit MMIO read.
 [[gnu::always_inline]] inline std::uint8_t readb(mmio_addr_t addr) noexcept {
   return read_ordered<std::uint8_t>(addr);
@@ -174,12 +227,10 @@ template <mmio_ok_v T>
 [[gnu::always_inline]] inline std::uint64_t readq(mmio_addr_t addr) noexcept {
   return read_ordered<std::uint64_t>(addr);
 }
-
 ///@}
 
-/** @name Ordered MMIO reads. */
+/** @name Ordered MMIO writes. */
 ///@{
-
 // Ordered 8-bit MMIO write.
 [[gnu::always_inline]] inline void writeb(std::uint8_t value,
                                           mmio_addr_t addr) noexcept {
@@ -203,7 +254,6 @@ template <mmio_ok_v T>
                                           mmio_addr_t addr) noexcept {
   write_ordered<std::uint64_t>(addr, value);
 }
-
 ///@}
 
 } // namespace xino::io

@@ -1,7 +1,0 @@
-# ukernel/configs/plat_qemu.cmake
-
-set(UKERNEL_BASE "0x40200000" CACHE STRING "uKernel base")
-set(UKERNEL_STACK_SIZE "0x4000" CACHE STRING "Stack size (16-byte aligned)")
-
-set(UKERNEL_UART_DRIVER "PL011" CACHE INTERNAL "UART driver" FORCE)
-set(UKERNEL_UART_BASE "0x9000000" CACHE INTERNAL "UART base" FORCE)

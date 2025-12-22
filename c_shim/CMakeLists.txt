@@ -2,8 +2,6 @@
 
 # Configurations:
 
-set(C_SHIM_HEAP_SIZE 0x10000 CACHE STRING "Heap size (bytes, hex or decimal)")
-
 # Source files.
 file(GLOB_RECURSE C_SHIM_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
