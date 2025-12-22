@@ -1,41 +1,37 @@
 /**
  * @file reloc.c
- * @brief Minimal AArch64 self-relocation (R_AARCH64_RELATIVE) for a PIE kernel.
+ * @brief Minimal AArch64 self-relocation for a PIE image.
  *
- * This module applies `R_AARCH64_RELATIVE` relocations recorded in the
- * `.rela.dyn` section at early boot, fixing up absolute addresses so they
- * point at their **final virtual addresses** in the range
- * `[UKERNEL_BASE, UKERNEL_BASE + __image_end)`.
+ * This module applies **only** `R_AARCH64_RELATIVE` relocations, recorded in
+ * the `.rela.dyn` section at early boot, fixing up absolute addresses so they
+ * point at their **final virtual addresses**.
  *
  * What it does
  *  - Computes the image load physical base via a linker-provided symbol.
  *  - Iterates `__rela_dyn_start .. __rela_dyn_end`.
- *  - For each `Elf64_Rela` with type `R_AARCH64_RELATIVE`, stores:
+ *  - For each `Elf64_Rela` with type `R_AARCH64_RELATIVE`, it does
  *
  *   @code
  *   *(uint64_t *)(rela->r_offset + phys_base) = rela->r_addend + bias;
  *   @endcode
  *
- *  - For `R_AARCH64_RELATIVE`, `rela->r_addend` encodes (effectively) the
- *    link-time virtual address of the target object within the same image.
- *  - This adds the load bias (difference between load address and link-time
- *    base) to `rela->r_addend` to obtain the real runtime address.
- *  - Since ukernel is linked with `VMA = 0`, `rela->r_addend` is just an
- *    offset within the image, and the load `bias` is `UKERNEL_BASE`.
+ *      where `bias` is the difference between
+ *        the **runtime virtual address** and
+ *        the **link-time virtual address**.
  *
  * This file is **PIC by nature**
- * - It is plain C with no global address constants stored in data,
- *   no TLS, and no C++ features (vtables/RTTI).
- * - References to `__image_start` / `__rela_dyn_*` are emitted as
- *   **PC-relative code relocations** (`ADRP` + `ADD :lo12:`), which are
- *   resolved **at link time** and therefore do **not** produce dynamic
- *   relocations in `.rela.dyn`.
+ *  - It is plain C with no global address constants stored in data,
+ *    no TLS, and no C++ features (vtables/RTTI).
+ *  - References to `__image_start` / `__rela_dyn_*` are emitted as
+ *    **PC-relative code relocations** (`ADRP` + `ADD :lo12:`), which are
+ *    resolved **at link time** and therefore do **not** produce dynamic
+ *    relocations in `.rela.dyn`.
  *
  * Requirements
- * - Compile all objects with `-fpie` (or libraries with `-fPIC`).
- * - Link with `-static --pie` and keep `.rela.dyn` in the image.
- * - Linker script must export `__image_start`, `__rela_dyn_start`, and
- *   `__rela_dyn_end`.
+ *  - Compile all objects with `-fpie` (or libraries with `-fPIC`).
+ *  - Link with `-static --pie` and keep `.rela.dyn` in the image.
+ *  - Linker script must export `__image_start`, `__rela_dyn_start`, and
+ *    `__rela_dyn_end`.
  *
  * @author Amirreza Zarrabi
  * @date 2025
@@ -58,10 +54,25 @@ extern char __image_start[];
 extern Elf64_Rela __rela_dyn_start[], __rela_dyn_end[];
 
 static inline uintptr_t load_phys_base() {
-  return (uintptr_t)__image_start; /* Physical (or identity-mapped) base. */
+  // Physical (or identity-mapped) base.
+  return (uintptr_t)__image_start;
 }
 
-static void apply_rela() {
+/**
+ * @brief Apply `.rela.dyn` RELA relocations of type `R_AARCH64_RELATIVE`.
+ *
+ * @param bias Unsigned relocation bias.
+ *
+ * @note bias MUST be computed using **unsigned** arithmetic so that
+ * wraparound is well-defined and negative deltas are represented correctly in
+ * two's-complement form. Compute it as:
+ *
+ * @code
+ *   uint64_t bias =
+ *    (uint64_t)(uintptr_t)runtime_base_va - (uint64_t)(uintptr_t)link_base_va;
+ * @endcode
+ */
+static void apply_rela(uint64_t bias) {
   uintptr_t phys_base = load_phys_base();
   Elf64_Rela *rela;
 
@@ -72,9 +83,12 @@ static void apply_rela() {
         __asm__ __volatile__("wfe");
     }
 
-    // Apply R_AARCH64_RELATIVE:
-    *(uint64_t *)(rela->r_offset + phys_base) = rela->r_addend + UKERNEL_BASE;
+    // Apply R_AARCH64_RELATIVE.
+    *(uint64_t *)(phys_base + (uintptr_t)rela->r_offset) =
+        (uint64_t)rela->r_addend + bias; // modulo 2^64.
   }
 }
 
-void ukernel_apply_relocations() { apply_rela(); }
+// NO SUPPORT FOR VA RANDOMIZATION.
+// Use `UKERNEL_BASE` as `runtime_base_va`.
+void ukernel_apply_relocations() { apply_rela(UKERNEL_BASE); }

@@ -1,15 +1,16 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-/* xino heap size. */
-#define C_SHIM_HEAP_SIZE @C_SHIM_HEAP_SIZE@
-
 /* uKernel: */
 
-/* Page granule and size. */
+#cmakedefine UKERNEL_SMP
+
+/* Page granule and va_layout. */
 #cmakedefine UKERNEL_PAGE_4K
 #cmakedefine UKERNEL_PAGE_16K
 #define UKERNEL_VA_BITS @UKERNEL_VA_BITS@
+#define UKERNEL_KIMAGE_SLOT_SIZE @UKERNEL_KIMAGE_SLOT_SIZE@
+#define UKERNEL_DEVMAP_SLOT_SIZE @UKERNEL_DEVMAP_SLOT_SIZE@
 
 /* uKernel base address, see reloc.c. */
 #define UKERNEL_BASE @UKERNEL_BASE@

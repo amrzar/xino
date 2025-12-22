@@ -9,13 +9,13 @@ extern ctor_t __fini_array_start[], __fini_array_end[];
 }
 
 static void run_init_array() {
-  for (auto p = __init_array_start; p != __init_array_end; ++p)
+  for (auto p{__init_array_start}; p != __init_array_end; ++p)
     if (*p)
       (*p)();
 }
 
 static void run_fini_array() {
-  for (auto p = __fini_array_start; p != __fini_array_end; ++p)
+  for (auto p{__fini_array_start}; p != __fini_array_end; ++p)
     if (*p)
       (*p)();
 }

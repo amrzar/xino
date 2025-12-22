@@ -2,6 +2,8 @@
 
 # ukernel configurations.
 
+set(UKERNEL_SMP FALSE CACHE BOOL "Multicore uKernel")
+
 set(UKERNEL_PROFILE "standalone" CACHE STRING
   "Kernel profile: standalone (4K + 39-bit VA) or embedded (16K + 36-bit VA)")
 set_property(CACHE UKERNEL_PROFILE PROPERTY STRINGS standalone embedded)
@@ -14,19 +16,27 @@ else() # Default is standalone.
   set(UKERNEL_VA_BITS "39" CACHE INTERNAL "" FORCE)
 endif()
 
+set(UKERNEL_KIMAGE_SLOT_SIZE "0x20000000" CACHE INTERNAL
+  "uKernel mapping size" FORCE) # 512 Mb.
+
+set(UKERNEL_DEVMAP_SLOT_SIZE "0x4000000" CACHE INTERNAL
+  "Device mapping size" FORCE)  # 64 Mb.
+
 # Platform:
 
-set(UKERNEL_PLATFORM "qemu" CACHE STRING "Target platform")
-set_property(CACHE UKERNEL_PLATFORM PROPERTY STRINGS qemu rock5b)
+set(UKERNEL_PLATFORM "rock5b" CACHE STRING "Target platform")
+set_property(CACHE UKERNEL_PLATFORM PROPERTY STRINGS rock5b)
 
-# Platform configutaions
+# Platform configurations
 
-# Platform == QEMU
-if(UKERNEL_PLATFORM STREQUAL "qemu")
-include(configs/plat_qemu.cmake)
 # Platform == Rock 5B+
-elseif(UKERNEL_PLATFORM STREQUAL "rock5b")
-include(configs/plat_rock5b.cmake)
+if(UKERNEL_PLATFORM STREQUAL "rock5b")
+  set(UKERNEL_BASE "0xa00000UL" CACHE STRING "uKernel base")
+  set(UKERNEL_STACK_SIZE "0x4000" CACHE STRING
+    "Stack size (16-byte aligned)") # 16 KB.
+  #  -- Drivers --
+  set(UKERNEL_UART_DRIVER  "DW_APB" CACHE INTERNAL "UART driver" FORCE)
+  set(UKERNEL_UART_BASE "0xfeb50000UL" CACHE INTERNAL "UART base" FORCE)
 else()
   message(FATAL_ERROR "Unknown UKERNEL_PLATFORM='${UKERNEL_PLATFORM}'")
 endif()
