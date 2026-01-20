@@ -1,5 +1,5 @@
 /**
- * @file uart.hpp
+ * @file plat_uart.hpp
  * @brief UART driver namespace with pluggable backends (PL011 and others).
  *
  * The `uart` namespace is an extensible container for **multiple UART device
@@ -16,12 +16,13 @@
  * @date 2025
  */
 
-#ifndef __UART_HPP__
-#define __UART_HPP__
+#ifndef __PLAT_UART_HPP__
+#define __PLAT_UART_HPP__
 
 #include <config.h> // for UKERNEL_UART_DRIVER and UKERNEL_UART_BASE.
 #include <cstdint>
-#include <mm.hpp> // for phys_addr and virt_addr.
+#include <io.hpp> // for writel() and readl_relaxed().
+#include <mm.hpp> // for virt_addr.
 
 namespace xino::plat::uart {
 
@@ -39,10 +40,10 @@ namespace xino::plat::uart {
 class PL011 {
 private:
   /** @brief Active MMIO base; zero means "not initialized". */
-  inline static xino::mm::virt_addr uart_base{};
+  inline static xino::mm::virt_addr uart_base{0};
 
-  static volatile std::uint32_t &reg_at(std::uintptr_t off) noexcept {
-    return *uart_base.as_ptr<volatile std::uint32_t>(off);
+  [[nodiscard]] static xino::mm::virt_addr reg(std::uintptr_t off) noexcept {
+    return uart_base + off;
   }
 
   // Register offsets (see section 3.2).
@@ -62,7 +63,7 @@ private:
 
   /** @brief Busy-wait until TX FIFO has space. */
   static void wait_tx_space_at() noexcept {
-    while (reg_at(UARTFR) & UARTFR_TXFF) {
+    while (xino::io::readl_relaxed(reg(UARTFR)) & UARTFR_TXFF) {
       /* Spin. */
     }
   }
@@ -88,15 +89,15 @@ public:
 class DW_APB {
 private:
   /** @brief Active MMIO base; zero means "not initialized". */
-  inline static xino::mm::virt_addr uart_base{};
+  inline static xino::mm::virt_addr uart_base{0};
 
-  static volatile std::uint32_t &reg_at(std::uintptr_t off) noexcept {
-    return *uart_base.as_ptr<volatile std::uint32_t>(off);
+  [[nodiscard]] static xino::mm::virt_addr reg(std::uintptr_t off) noexcept {
+    return uart_base + off;
   }
 
   // Register offsets (see section 19.4).
   static constexpr std::uintptr_t THR{0x0000}; /**< Transmit Buffer. */
-  static constexpr std::uintptr_t IER{0x0004}; /**< nterrupt Enable. */
+  static constexpr std::uintptr_t IER{0x0004}; /**< Interrupt Enable. */
   static constexpr std::uintptr_t FCR{0x0008}; /**< FFIFO Enable. */
   static constexpr std::uintptr_t LCR{0x000c}; /**< Line Control. */
   static constexpr std::uintptr_t MCR{0x0010}; /**< Modem Control. */
@@ -112,8 +113,8 @@ private:
   static constexpr std::uint32_t LSR_TEMT{1U << 6}; /**< Transmitter empty. */
 
   static void wait_tx_space_at() noexcept {
-    while (!(reg_at(LSR) & LSR_THRE)) {
-      /* spin */
+    while (!(xino::io::readl_relaxed(reg(LSR)) & LSR_THRE)) {
+      /* Spin. */
     }
   }
 
@@ -135,4 +136,4 @@ public:
 using driver = UKERNEL_UART_DRIVER;
 } // namespace xino::plat::uart
 
-#endif // __UART_HPP__
+#endif // __PLAT_UART_HPP__

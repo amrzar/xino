@@ -86,7 +86,7 @@ SECTIONS
 
   /* END DATA. */
 
-  /* Dynamic relocation for self relocator. */
+  /* Dynamic relocation for self relocation; see reloc.c */
   .rela.dyn : ALIGN(8) {
     __rela_dyn_start = .;
     *(.rela.dyn .rela.*)

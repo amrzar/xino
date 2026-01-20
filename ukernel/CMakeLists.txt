@@ -25,18 +25,18 @@ add_custom_target(gen_ukernel_linker_script DEPENDS "${UKERNEL_LDS_OUT}")
 # Code-gen codes.
 set(UKERNEL_REGTOOL "${CMAKE_CURRENT_SOURCE_DIR}/../tools/xino_regtool.py")
 
-set(UKERNEL_SYSREGHPP "${CMAKE_BINARY_DIR}/include/sysregs.hpp")
+set(UKERNEL_REG_HPP "${CMAKE_BINARY_DIR}/include/regs.hpp")
 
 add_custom_command(
-  OUTPUT "${UKERNEL_SYSREGHPP}"
+  OUTPUT "${UKERNEL_REG_HPP}"
   COMMAND python3 "${UKERNEL_REGTOOL}"
-    -i "${CMAKE_CURRENT_SOURCE_DIR}/spec_sysregs"
-    -o "${UKERNEL_SYSREGHPP}"
-  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/spec_sysregs"
+    -i "${CMAKE_CURRENT_SOURCE_DIR}/regs.spec"
+    -o "${UKERNEL_REG_HPP}"
+  DEPENDS "${UKERNEL_REGTOOL}" "${CMAKE_CURRENT_SOURCE_DIR}/regs.spec"
   VERBATIM
 )
 
-add_custom_target(gen_ukernel_codegen DEPENDS "${UKERNEL_SYSREGHPP}")
+add_custom_target(gen_ukernel_codegen DEPENDS "${UKERNEL_REG_HPP}")
 
 # Source files.
 file(GLOB_RECURSE UKERNEL_SOURCES CONFIGURE_DEPENDS
@@ -72,6 +72,7 @@ target_link_libraries(ukernel PRIVATE
 
 target_compile_options(ukernel PRIVATE
   -fpie
+  -march=armv8.1-a
   $<$<COMPILE_LANGUAGE:CXX>:-fexceptions;-frtti; -fno-threadsafe-statics>
 )
 
