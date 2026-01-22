@@ -8,7 +8,8 @@ SECTIONS
 {
   . = 0;
 
-  __image_start = .;
+  /* See mm_va_layout.cpp. */
+  HIDDEN(__image_start = .);
 
   .text : ALIGN(16) {
     __text_start = .;
@@ -73,6 +74,15 @@ SECTIONS
     __data_end = .;
   }
 
+  .percpu : ALIGN(UKERNEL_CACHE_LINE) {
+    __percpu_aligned_start = .;
+    KEEP(*(.percpu_aligned .percpu_aligned.*))
+    __percpu_start = .;
+    KEEP(*(.percpu .percpu.*))
+    . = ALIGN(UKERNEL_CACHE_LINE);
+    __percpu_end = .;
+  }
+
   .bss (NOLOAD) : ALIGN(16) {
     __bss_start = .;
     /* Keep initial stack in .bss. */
@@ -84,21 +94,29 @@ SECTIONS
     __bss_end = .;
   }
 
-  /* END DATA. */
-
-  /* Dynamic relocation for self relocation; see reloc.c */
-  .rela.dyn : ALIGN(8) {
-    __rela_dyn_start = .;
-    *(.rela.dyn .rela.*)
-    __rela_dyn_end = .;
+  .boot_heap (NOLOAD) : ALIGN(UKERNEL_PAGE_SIZE) {
+    HIDDEN(__boot_heap_start = .);
+    . += UKERNEL_BOOT_HEAP_SIZE;
+    . = ALIGN(UKERNEL_PAGE_SIZE);
+    HIDDEN(__boot_heap_end = .);
   }
 
-  __image_end = .;
+  /* END DATA. */
+
+  .rela.dyn : ALIGN(8) {
+    HIDDEN(__rela_dyn_start = .);
+    *(.rela.dyn .rela.dyn.*)
+    HIDDEN(__rela_dyn_end = .);
+  }
+
+  HIDDEN(__image_end = .);
+
+  ASSERT((__image_end - __image_start) <= UKERNEL_KIMAGE_SLOT_SIZE,
+    "uKernel image does not fit in UKERNEL_KIMAGE_SLOT_SIZE")
 
   .symtab         0 : { *(.symtab) }
   .strtab         0 : { *(.strtab) }
   .shstrtab       0 : { *(.shstrtab) }
-  /* Keep debug info.  */
   .debug_addr     0 : { *(.debug_addr) }
   .debug_aranges  0 : { *(.debug_aranges) }
   .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
@@ -119,4 +137,5 @@ SECTIONS
     *(.dynsym) *(.dynstr)
     *(.hash) *(.gnu.hash)
   }
+
 }

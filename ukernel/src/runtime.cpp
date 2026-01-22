@@ -1,4 +1,5 @@
 
+#include <allocator.hpp>
 #include <cstdlib> // for std::malloc and ste::free.
 #include <new>
 
@@ -47,6 +48,8 @@ extern "C" void ukernel_entry() {
   deregister_eh_frames();
 }
 
+/* NEW and DELETE operators. */
+
 void *operator new(std::size_t sz) {
   void *ptr = std::malloc(sz);
   if (ptr)
@@ -61,6 +64,20 @@ void *operator new[](std::size_t sz) {
   throw std::bad_alloc{};
 }
 
+void *operator new(std::size_t sz, std::align_val_t align) {
+  void *ptr = std::aligned_alloc(sz, static_cast<std::size_t>(align));
+  if (ptr)
+    return ptr;
+  throw std::bad_alloc{};
+}
+
+void *operator new[](std::size_t sz, std::align_val_t align) {
+  void *ptr = std::aligned_alloc(sz, static_cast<std::size_t>(align));
+  if (ptr)
+    return ptr;
+  throw std::bad_alloc{};
+}
+
 void *operator new(std::size_t sz, const std::nothrow_t &) noexcept {
   return malloc(sz);
 }
@@ -69,10 +86,42 @@ void *operator new[](std::size_t sz, const std::nothrow_t &) noexcept {
   return malloc(sz);
 }
 
+void *operator new(std::size_t sz, std::align_val_t align,
+                   const std::nothrow_t &) noexcept {
+  return aligned_alloc(sz, static_cast<std::size_t>(align));
+}
+
+void *operator new[](std::size_t sz, std::align_val_t align,
+                     const std::nothrow_t &) noexcept {
+  return aligned_alloc(sz, static_cast<std::size_t>(align));
+}
+
 void operator delete(void *ptr) noexcept { std::free(ptr); }
 
 void operator delete[](void *ptr) noexcept { std::free(ptr); }
 
+void operator delete(void *ptr, std::align_val_t align) noexcept { free(ptr); }
+
+void operator delete[](void *ptr, std::align_val_t align) noexcept {
+  free(ptr);
+}
+
 void operator delete(void *ptr, std::size_t sz) noexcept { std::free(ptr); }
 
 void operator delete[](void *ptr, std::size_t sz) noexcept { std::free(ptr); }
+
+void operator delete(void *ptr, std::size_t sz,
+                     std::align_val_t align) noexcept {
+  free(ptr);
+}
+
+void operator delete[](void *ptr, std::size_t sz,
+                       std::align_val_t align) noexcept {
+  free(ptr);
+}
+
+/* malloc()-family allocator. */
+
+void *alloc_page(unsigned order) { return NULL; }
+
+void free_page(void *va, unsigned order) {}

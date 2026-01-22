@@ -8,6 +8,7 @@
 #include <errno.hpp>
 #include <mm.hpp> // phys_addr, virt_addr, ipa_addr, and prot
 #include <mm_va_layout.hpp>
+#include <type_traits>
 
 /**
  * @anchor chapter_d8
@@ -399,7 +400,7 @@ struct pte_encoder<stage::ST_1>
       pte |= PTE_nG; // User page.
     }
 
-    if (!(p & xino::mm::prot::EXEC))
+    if (!(p & xino::mm::prot::EXECUTE))
       pte |= (PTE_PXN | PTE_UXN);
 
     return pte;
@@ -430,7 +431,7 @@ struct pte_encoder<stage::ST_2>
       // 00 => no access
     }
 
-    if (!(p & xino::mm::prot::EXEC)) {
+    if (!(p & xino::mm::prot::EXECUTE)) {
       pte |= PTE_UXN; // XN (conservative)
     }
 
@@ -459,35 +460,43 @@ template <stage Stage> struct addr_for;
 /** @brief Stage-1 input address (VA + ASID). */
 template <> struct addr_for<stage::ST_1> {
   using addr_type = xino::mm::virt_addr;
-
-  addr_type addr{};
-  std::uint16_t asid{};
+  // Address type at stage-1.
+  addr_type addr;
+  std::uint16_t asid;
 };
 
 /** @brief Stage-2 input address (IPA). */
 template <> struct addr_for<stage::ST_2> {
   using addr_type = xino::mm::ipa_addr;
-
-  addr_type addr{};
+  // Address type at stage-2.
+  addr_type addr;
 };
 
 template <stage Stage, typename Allocator> class page_table {
 public:
+  template <stage, typename, bool> friend class page_table;
+
   /** @brief Stage-specific address type (VA + ASID or IPA). */
   using addr_t = addr_for<Stage>;
 
-  page_table() = delete;
+  xino::error_t init(Allocator &a) noexcept {
+    allocator = a;
+    // Setup root page.
+    root_pa = alloc_single_pt();
+    if (root_pa == xino::mm::phys_addr{0})
+      return xino::error_nr::nomem;
 
-  // No copy.
-  page_table(const page_table &) = delete;
+    // Assume
+    mmu_on = false;
 
-  // No assignment.
-  page_table &operator=(const page_table &) = delete;
-
-  explicit constexpr page_table(Allocator &a) noexcept : allocator{a} {
-    for (unsigned i{0}; i < entries_per_table(); i++)
-      pt_root[i] = PTE_TYPE_FAULT;
+    return xino::error_nr::ok;
   }
+
+  /** @brief Physical address of the root for page table. */
+  [[nodiscard]] xino::mm::phys_addr root() { return root_pa; }
+
+  // Tear down the page table.
+  ~page_table() { free_subtree(root_pa, 0); }
 
   // MAP, UNMAP, and PROTECT.
 
@@ -639,11 +648,15 @@ private:
     UPDATE   /**< Replace an existing mapping/attributes. */
   };
 
+  [[nodiscard]] pte_t *root_va() noexcept {
+    return xino::mm::va_layout::phys_to_virt(root_pa, mmu_on).ptr<pte_t>();
+  }
+
   /**
    * @brief Allocate and initialize a single page-table page.
    *
-   * @return Physical address of the newly allocated page-table page, or
-   *         `xino::mm::phys_addr{0}` on failure.
+   * @return Physical address of the newly allocated page-table page
+   *         (initialized to FAULT) or `xino::mm::phys_addr{0}` on failure.
    */
   [[nodiscard]] xino::mm::phys_addr alloc_single_pt() noexcept {
     using namespace xino::barrier;
@@ -652,10 +665,10 @@ private:
     if (pa == xino::mm::phys_addr{0})
       return pa;
 
-    pte_t *table{xino::mm::va_layout::phys_to_virt(pa).ptr<pte_t>()};
+    pte_t *t{xino::mm::va_layout::phys_to_virt(pa, mmu_on).ptr<pte_t>()};
     // Init PTEs.
     for (unsigned i{0}; i < entries_per_table(); i++)
-      table[i] = PTE_TYPE_FAULT;
+      t[i] = PTE_TYPE_FAULT;
     // Make sure the table is in FAULT state.
     dmb<opt::ishst>();
 
@@ -724,7 +737,7 @@ private:
 
   // Return address that suitable to map at specified level.
   [[nodiscard]] static addr_t block_base(addr_t a, unsigned level) noexcept {
-    // Update address, keep ASID untouched..
+    // Update address, keep ASID untouched.
     a.addr = a.addr.align_down(level_size(level));
 
     return a;
@@ -791,7 +804,7 @@ private:
                                  pte_t &slot, pte_t value) noexcept {
     using namespace xino::barrier;
 
-    if (xino::mm::mmu_on) [[likely]] {
+    if constexpr (MMU == true) {
       if (k == kind::UPDATE || k == kind::REMOVE) {
         slot = PTE_TYPE_FAULT;
         dsb<opt::ishst>();
@@ -804,7 +817,7 @@ private:
     // Install descriptor.
     slot = value;
 
-    if (xino::mm::mmu_on) [[likely]] {
+    if constexpr (MMU == true) {
       dsb<opt::ishst>();
       invalidate_range(a, size);
       dsb<opt::ish>();
@@ -890,7 +903,7 @@ private:
     if (!entry_is_block(entry))
       return xino::error_nr::ok;
 
-    const std::size_t ls = level_size(level);
+    const std::size_t ls{level_size(level)};
     // `a` should be page aligned for the block at level.
     if (!a.addr.is_align(ls))
       return xino::error_nr::invalid;
@@ -899,7 +912,7 @@ private:
     if (pa == xino::mm::phys_addr{0})
       return xino::error_nr::nomem;
 
-    pte_t *table{xino::mm::va_layout::phys_to_virt(pa).ptr<pte_t>()};
+    pte_t *t{xino::mm::va_layout::phys_to_virt(pa, mmu_on).ptr<pte_t>()};
 
     // Extracts the physical address and attributes from the PTE.
     const xino::mm::phys_addr pte_pa{pte_encoder<Stage>::pte_to_phys(entry)};
@@ -916,7 +929,7 @@ private:
               ? pte_encoder<Stage>::make_leaf_block_attr(next, pte_attr)
               : pte_encoder<Stage>::make_leaf_page_attr(next, pte_attr);
 
-      table[i] = leaf;
+      t[i] = leaf;
     }
 
     // Make sure updates to table are visible.
@@ -935,39 +948,40 @@ private:
   [[nodiscard]] xino::error_t map_one(const addr_t &a, xino::mm::phys_addr pa,
                                       xino::mm::prot p,
                                       unsigned leaf_level) noexcept {
-    pte_t *t{pt_root};
+    pte_t *t{root_va()};
 
     for (unsigned level{0}; level < leaf_level; level++) {
-      const unsigned idx = index_for(a, level);
+      const unsigned idx{index_for(a, level)};
 
-      pte_t &entry = t[idx];
+      pte_t &entry{t[idx]};
 
       // If entry is a block, allocate a table and break the block.
-      if (auto ret = split_block(block_base(a, level), entry, level);
+      if (auto ret{split_block(block_base(a, level), entry, level)};
           ret != xino::error_nr::ok)
         return ret;
 
       xino::mm::phys_addr child{};
       // At level < leaf_level, make sure entry is a table.
-      if (auto ret = ensure_next_table(entry, level, child);
+      if (auto ret{ensure_next_table(entry, level, child)};
           ret != xino::error_nr::ok)
         return ret;
 
-      t = xino::mm::va_layout::phys_to_virt(child).ptr<pte_t>();
+      t = xino::mm::va_layout::phys_to_virt(child, mmu_on).ptr<pte_t>();
     }
 
     // At leaf_level, t should be updated.
 
-    const unsigned idx = index_for(a, leaf_level);
+    const unsigned idx{index_for(a, leaf_level)};
     // Make sure entry is FAULT.
     if (entry_is_valid(t[idx]))
       return xino::error_nr::invalid;
 
-    const bool device = static_cast<bool>(p & xino::mm::prot::DEVICE);
+    // Memory type: device vs. normal.
+    const bool device{static_cast<bool>(p & xino::mm::prot::DEVICE)};
 
-    const pte_t pte = (leaf_level + 1) < levels()
-                          ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
-                          : pte_encoder<Stage>::make_leaf_page(pa, p, device);
+    const pte_t pte{(leaf_level + 1) < levels()
+                        ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
+                        : pte_encoder<Stage>::make_leaf_page(pa, p, device)};
 
     write_pte_and_sync(kind::INSTALL, block_base(a, leaf_level),
                        level_size(leaf_level), t[idx], pte);
@@ -977,12 +991,12 @@ private:
 
   [[nodiscard]] xino::error_t unmap_one(const addr_t &a,
                                         unsigned leaf_level) noexcept {
-    pte_t *t{pt_root};
+    pte_t *t{root_va()};
 
     for (unsigned level{0}; level < leaf_level; level++) {
-      const unsigned idx = index_for(a, level);
+      const unsigned idx{index_for(a, level)};
 
-      pte_t &entry = t[idx];
+      pte_t &entry{t[idx]};
 
       // If entry is not valid, there is nothing to unmap.
       if (!entry_is_valid(entry))
@@ -990,7 +1004,7 @@ private:
 
       if (entry_is_block(entry)) {
         // If entry is a block, allocate a table and break the block.
-        if (auto ret = split_block(block_base(a, level), entry, level);
+        if (auto ret{split_block(block_base(a, level), entry, level)};
             ret != xino::error_nr::ok)
           return ret;
       }
@@ -999,14 +1013,14 @@ private:
       if (!entry_is_table(level, entry)) [[unlikely]]
         return xino::error_nr::ok;
 
-      const xino::mm::phys_addr child = pte_encoder<Stage>::pte_to_phys(entry);
+      const xino::mm::phys_addr child{pte_encoder<Stage>::pte_to_phys(entry)};
       // t is a page table.
-      t = xino::mm::va_layout::phys_to_virt(child).ptr<pte_t>();
+      t = xino::mm::va_layout::phys_to_virt(child, mmu_on).ptr<pte_t>();
     }
 
     // At leaf_level, t should be updated.
 
-    const unsigned idx = index_for(a, leaf_level);
+    const unsigned idx{index_for(a, leaf_level)};
     // Make sure entry is not FAULT.
     if (!entry_is_valid(t[idx]))
       return xino::error_nr::ok;
@@ -1019,12 +1033,12 @@ private:
 
   [[nodiscard]] xino::error_t protect_one(const addr_t &a, xino::mm::prot p,
                                           unsigned leaf_level) noexcept {
-    pte_t *t{pt_root};
+    pte_t *t{root_va()};
 
-    for (unsigned level = 0; level < leaf_level; level++) {
-      const unsigned idx = index_for(a, level);
+    for (unsigned level{0}; level < leaf_level; level++) {
+      const unsigned idx{index_for(a, level)};
 
-      pte_t &entry = t[idx];
+      pte_t &entry{t[idx]};
 
       // If entry is not valid, unable to update permission.
       if (!entry_is_valid(entry))
@@ -1032,7 +1046,7 @@ private:
 
       if (entry_is_block(entry)) {
         // If entry is a block, allocate a table and break the block.
-        if (auto ret = split_block(block_base(a, level), entry, level);
+        if (auto ret{split_block(block_base(a, level), entry, level)};
             ret != xino::error_nr::ok)
           return ret;
       }
@@ -1041,26 +1055,27 @@ private:
       if (!entry_is_table(level, entry)) [[unlikely]]
         return xino::error_nr::invalid;
 
-      const xino::mm::phys_addr child = pte_encoder<Stage>::pte_to_phys(entry);
+      const xino::mm::phys_addr child{pte_encoder<Stage>::pte_to_phys(entry)};
       // t is a page table.
-      t = xino::mm::va_layout::phys_to_virt(child).ptr<pte_t>();
+      t = xino::mm::va_layout::phys_to_virt(child, mmu_on).ptr<pte_t>();
     }
 
     // At leaf_level, t should be updated.
 
-    const unsigned idx = index_for(a, leaf_level);
+    const unsigned idx{index_for(a, leaf_level)};
     // Make sure entry is not FAULT, and is a page or block.
     if (!entry_is_valid(t[idx]) || entry_is_table(leaf_level, t[idx]))
       return xino::error_nr::invalid;
 
     // Extracts the physical address form PTE.
-    const xino::mm::phys_addr pa = pte_encoder<Stage>::pte_to_phys(t[idx]);
+    const xino::mm::phys_addr pa{pte_encoder<Stage>::pte_to_phys(t[idx])};
 
-    const bool device = static_cast<bool>(p & xino::mm::prot::DEVICE);
+    // Memory type: device vs. normal.
+    const bool device{static_cast<bool>(p & xino::mm::prot::DEVICE)};
 
-    const pte_t pte = (leaf_level + 1) < levels()
-                          ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
-                          : pte_encoder<Stage>::make_leaf_page(pa, p, device);
+    const pte_t pte{(leaf_level + 1) < levels()
+                        ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
+                        : pte_encoder<Stage>::make_leaf_page(pa, p, device)};
 
     write_pte_and_sync(kind::UPDATE, block_base(a, leaf_level),
                        level_size(leaf_level), t[idx], pte);
@@ -1068,9 +1083,37 @@ private:
     return xino::error_nr::ok;
   }
 
+  /**
+   * @brief Recursively free a page-table subtree.
+   *
+   * Walks the page-table rooted at @p table_pa, clears every entry to
+   * `PTE_TYPE_FAULT`, and frees all **page-table pages**.
+   *
+   * @param table_pa Physical address of the current page-table page.
+   * @param level Logical level of @p table_pa.
+   */
+  void free_subtree(xino::mm::phys_addr table_pa, unsigned level) noexcept {
+    pte_t *t{xino::mm::va_layout::phys_to_virt(table_pa, mmu_on).ptr<pte_t>()};
+
+    for (unsigned i{0}; i < entries_per_table(); i++) {
+      pte_t &entry{t[i]};
+
+      if (!entry_is_valid(entry))
+        continue;
+
+      // Free subtree.
+      if (entry_is_table(level, entry))
+        free_subtree(pte_encoder<Stage>::pte_to_phys(entry), level + 1);
+
+      entry = PTE_TYPE_FAULT;
+    }
+
+    allocator.free_pages(table_pa, 0);
+  }
+
   Allocator &allocator;
-  // PT root.
-  pte_t pt_root[entries_per_table()];
+  xino::mm::phys_addr root_pa;
+  bool mmu_on;
 };
 
 } // namespace xino::mm::paging

@@ -50,8 +50,10 @@ typedef struct {
 #define R_AARCH64_RELATIVE 1027
 #define ELF64_R_TYPE(info) ((uint32_t)((info) & 0xffffffffU))
 
+/* See linker.ldspp. */
 extern char __image_start[];
-extern Elf64_Rela __rela_dyn_start[], __rela_dyn_end[];
+extern Elf64_Rela __rela_dyn_start[];
+extern Elf64_Rela __rela_dyn_end[];
 
 static inline uintptr_t load_phys_base() {
   // Physical (or identity-mapped) base.
@@ -90,5 +92,6 @@ static void apply_rela(uint64_t bias) {
 }
 
 // NO SUPPORT FOR VA RANDOMIZATION.
-// Use `UKERNEL_BASE` as `runtime_base_va`.
-void ukernel_apply_relocations() { apply_rela(UKERNEL_BASE); }
+// Use `UKERNEL_BASE` as `runtime_base_va`, `link_base_va` = 0.
+// Call only if MMU is off.
+void ukernel_apply_relocations(uintptr_t va) { apply_rela(UKERNEL_BASE); }

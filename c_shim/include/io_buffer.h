@@ -32,12 +32,13 @@ struct io_buffer;
  * @struct io_buffer_ops
  * @brief Defines the I/O backend for an `_IO_BUFFER` stream.
  *
- * The user must implement these callbacks to handle physical I/O,
- * such as reading from a file, serial port, or in-memory stream.
+ * The user must implement these callbacks to handle physical I/O, such as
+ * reading from a file, serial port, or in-memory stream.
  */
 struct io_buffer_ops {
   /**
    * @brief Read function called when input is required.
+   *
    * @param io Pointer to the I/O buffer.
    * @param buf Destination buffer.
    * @param count Maximum number of bytes to read.
@@ -47,6 +48,7 @@ struct io_buffer_ops {
 
   /**
    * @brief Write function called when output is flushed or bypassed.
+   *
    * @param io Pointer to the I/O buffer.
    * @param buf Source buffer.
    * @param count Number of bytes to write.
@@ -56,6 +58,7 @@ struct io_buffer_ops {
 
   /**
    * @brief Flushes the I/O buffer (input or output).
+   *
    * @param io Pointer to the I/O buffer.
    * @return 0 on success, or EOF on error.
    */
@@ -67,18 +70,16 @@ struct io_buffer_ops {
  * @brief Represents a buffered I/O stream with custom read/write behavior.
  *
  * This structure is used to manage input and output buffering for low-level
- * I/O operations. It supports flushing, ungetc, and different buffering modes
- * (full, line, none). The actual I/O backend is defined via user-provided
- * callbacks in `struct io_buffer_ops`.
+ * I/O operations. It supports flushing, ungetc, and different buffering modes.
  *
- * @note Only one of @c in or @c out is non-zero at any time, indicating whether
+ * @note Only one of `in` or `out` is non-zero at any time, indicating whether
  *       the buffer is currently used for input or output.
  */
 struct io_buffer {
-  int mode;             /**< Buffering mode: _IOFBF, _IOLBF, or _IONBF. */
+  int mode;             /**< Buffering mode: `_IOFBF`, `_IOLBF`, or `_IONBF`. */
   char *buffer;         /**< Pointer to buffer area (including head slop). */
   size_t buf_size;      /**< Size of usable buffer (excluding head slop). */
-  size_t io_unget_slop; /**< Size of head slop area for __iob_ungetc(). */
+  size_t io_unget_slop; /**< Size of head slop area for `__iob_ungetc()`. */
   //
   //            +-----------------+----------------------------------+
   //  buffer -> |  io_unget_slop  |             buf_size             |
@@ -94,10 +95,6 @@ struct io_buffer {
   char *inptr; /**< Current read position in buffer. */
 };
 
-/**
- * @typedef _IO_BUFFER
- * @brief Typedef shorthand for pointer to `struct io_buffer`.
- */
 typedef struct io_buffer *_IO_BUFFER;
 
 /**

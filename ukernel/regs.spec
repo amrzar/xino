@@ -6,6 +6,11 @@
                          "registers"
       : [
         {
+          "encoding" : "TPIDR_EL2",
+          "width" : 64,
+          "fields" : [ {"access" : "rw"} ]
+        },
+        {
           "encoding" : "CurrentEL",
           "width" : 64,
           "fields" : [ {
