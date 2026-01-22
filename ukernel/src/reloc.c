@@ -50,8 +50,34 @@ typedef struct {
 #define R_AARCH64_RELATIVE 1027
 #define ELF64_R_TYPE(info) ((uint32_t)((info) & 0xffffffffU))
 
+/**
+ * @brief Early-boot hazard: absolute VA dereference while MMU is off.
+ *
+ * Accessing linker-defined symbols (e.g., `__image_start`) during early boot is
+ * only safe with MMU off if the compiler can prove at compile time that the
+ * symbol is **non-preemptible** (hidden). This forces direct PC-relative code
+ * generation (`adr/adrp` + `add/ldr`) instead of a GOT-based sequence.
+ *
+ * Safety condition (must hold):
+ *  - Every TU that references such symbols must compile with hidden visibility
+ *    in effect (e.g., global `-fvisibility=hidden`), so codegen avoids GOT.
+ *  - Linker-script HIDDEN (e.g.`HIDDEN(__image_start = .))` is used to keep
+ *    the final ELF symbol hidden.
+ *
+ * Recommended hardening:
+ *  - `-fvisibility=hidden` for all C/C++ objects, especially early-boot code.
+ *  - Fail the link if PLT/GOT machinery appears (ASSERTs or
+ *    `--orphan-handling=error` for `.plt`, `.iplt`, `.rela.plt`, `.rela.iplt`,
+ *    `.got.plt`).
+ *
+ * Regression check:
+ *  - Validate relocations: `readelf -rW` should contain only the relocation
+ *    types reloc.c handles (i.e. `R_AARCH64_RELATIVE`).
+ */
+
 extern char __image_start[];
-extern Elf64_Rela __rela_dyn_start[], __rela_dyn_end[];
+extern Elf64_Rela __rela_dyn_start[];
+extern Elf64_Rela __rela_dyn_end[];
 
 static inline uintptr_t load_phys_base() {
   // Physical (or identity-mapped) base.
@@ -59,18 +85,18 @@ static inline uintptr_t load_phys_base() {
 }
 
 /**
- * @brief Apply `.rela.dyn` RELA relocations of type `R_AARCH64_RELATIVE`.
+ * @brief Apply `.rela.dyn` RELA relocations with a bias.
  *
- * @param bias Unsigned relocation bias.
- *
- * @note bias MUST be computed using **unsigned** arithmetic so that
- * wraparound is well-defined and negative deltas are represented correctly in
+ * The bias MUST be computed using **unsigned** arithmetic so that wraparound is
+ * well-defined and negative deltas are represented correctly in
  * two's-complement form. Compute it as:
  *
  * @code
  *   uint64_t bias =
  *    (uint64_t)(uintptr_t)runtime_base_va - (uint64_t)(uintptr_t)link_base_va;
  * @endcode
+ *
+ * @param bias Unsigned relocation bias.
  */
 static void apply_rela(uint64_t bias) {
   uintptr_t phys_base = load_phys_base();
@@ -90,5 +116,6 @@ static void apply_rela(uint64_t bias) {
 }
 
 // NO SUPPORT FOR VA RANDOMIZATION.
-// Use `UKERNEL_BASE` as `runtime_base_va`.
-void ukernel_apply_relocations() { apply_rela(UKERNEL_BASE); }
+// Use `UKERNEL_BASE` as `runtime_base_va`, `link_base_va` = 0.
+// Call only if MMU is off.
+void ukernel_apply_relocations(uintptr_t va) { apply_rela(UKERNEL_BASE); }

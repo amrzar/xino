@@ -25,6 +25,7 @@ target_compile_options(xino_build_flags INTERFACE
   -ffunction-sections
   -fno-stack-protector
   -mgeneral-regs-only
+  -fvisibility=hidden
 )
 
 # Sub-directories; should be before configure_file().

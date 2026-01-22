@@ -1,13 +1,39 @@
+/**
+ * @file allocator.hpp
+ * @brief Minimal early-boot-safe allocators (buddy).
+ *
+ * This header provides a small buddy allocator intended to work in both early
+ * boot and normal runtime.
+ *
+ * The uKernel performs PIE self-relocation very early (processing
+ * `R_AARCH64_RELATIVE` entries) and may execute code before any C++ dynamic
+ * initialization (`.init_array`) has run. In that stage, it is critical that:
+ *
+ *  - No dynamic initialization code is required just to instantiate allocator
+ *    objects (i.e. no hidden constructor calls via `.init_array`).
+ *  - The allocator state is brought up explicitly, at a time chosen by the
+ *    boot flow.
+ *
+ * Therefore, the buddy allocator is designed so that:
+ *
+ *  - It is safe to place in zero-initialized storage (`.bss`) at static
+ *    storage duration (e.g. `constinit buddy<N> g{}`).
+ *  - It performs all initialization explicitly in @ref buddy::init(), rather
+ *    than relying on non-trivial constructors or member initializers.
+ *
+ * @author Amirreza Zarrabi
+ * @date 2026
+ */
 
 #ifndef __ALLOCATOR_HPP__
 #define __ALLOCATOR_HPP__
 
 #include <cstddef>
 #include <cstdint>
+#include <errno.hpp>
 #include <limits>
 #include <mm.hpp>
 #include <mm_va_layout.hpp>
-#include <optional>
 #include <stdexcept>
 
 namespace xino {
@@ -18,25 +44,107 @@ struct nothrow_t {
 
 constexpr nothrow_t nothrow{};
 
-/* ALLOCATORS. */
+} // namespace xino
 
-namespace allocator {
+namespace xino::allocator {
+
+/**
+ * @brief Convert a block size expressed in pages to an order (log2).
+ *
+ * @param pages Block size in pages.
+ * @return The order corresponding to @p pages.
+ *
+ * @note If @p pages is not a power of two, the result is effectively
+ *       `floor(log2(pages))`, not a rounding-up order.
+ */
+[[nodiscard]] constexpr unsigned pages_to_order(std::size_t pages) noexcept {
+  unsigned r = 0;
+  while (pages > 1) {
+    pages >>= 1;
+    ++r;
+  }
+  return r;
+}
+
+/**
+ * @brief Convert an order to a block size in pages.
+ *
+ * @param order Order to convert.
+ * @return Block size in pages (`1U << order`).
+ */
+[[nodiscard]] constexpr std::size_t order_to_pages(unsigned order) noexcept {
+  return std::size_t{1} << order;
+}
+
+/**
+ * @brief Convert a size in bytes to an order.
+ *
+ * @param size Size in bytes.
+ * @return The order corresponding to @p size.
+ *
+ * @note This conversion truncates: any remainder smaller than one page is
+ *       discarded. If the resulting page count is not a power of two, the
+ *       result is effectively `floor(log2(pages))`, not a rounding-up order.
+ */
+[[nodiscard]] constexpr unsigned size_to_order(std::size_t size) noexcept {
+  return pages_to_order(size / xino::mm::va_layout::granule_size());
+}
+
+/* Binary tree buddy allocator.  */
 
 template <unsigned Order> class buddy {
 public:
-  // No empty allocator.
-  buddy() = delete;
+  /**
+   * @brief Initialize the buddy allocator over a physical memory interval.
+   *
+   * This function exists (instead of using a constructor) to keep the type
+   * usable in early boot:
+   *
+   *  - In the uKernel boot flow, code may execute before any C++ dynamic
+   *    initialization (`.init_array`) has run.
+   *  - A non-trivial default constructor (or non-trivial member initializers)
+   *    would force the compiler to emit dynamic initialization code, which is
+   *    unsafe to rely on during early boot and PIE self-relocation.
+   *
+   * To avoid that, this class is intended to be *trivially default
+   * constructible* (so a `constinit buddy<...> g{}` can live in `.bss` without
+   * any generated init code), and all runtime setup is performed explicitly
+   * here.
+   *
+   * What `init()` does:
+   *  - Resets internal state to the "not initialized" state.
+   *  - Clears internal bitmaps (`free_bits[]`/`split_bits[]`).
+   *  - Calls the internal initializer to build the initial free structure.
+   *
+   * @param pa Physical start address of the candidate pool.
+   * @param size Size (in bytes) of the candidate pool.
+   *
+   * @retval `xino::error_nr::ok` Success.
+   * @retval `xino::error_nr::overflow` Address overflow.
+   * @retval `xino::error_nr::invalid` The aligned region is empty or the pool
+   *         contains more pages than the allocator can represent.
+   *
+   * @par Example boot allocator
+   * @code
+   * constinit xino::allocator::buddy<MAX_ORDER> boot_buddy{};
+   * boot_buddy.init(pool_base, pool_size);
+   * @endcode
+   */
+  [[nodiscard]] xino::error_t init(xino::mm::phys_addr pa,
+                                   std::size_t size) noexcept {
+    // Reset state to "not initialized".
+    base_pa = xino::mm::phys_addr{0};
+    end_pa = xino::mm::phys_addr{0};
+    pool_pages = 0;
+    max_ord = 0;
 
-  // Non-throwing init (use is_ok() to check state.).
-  explicit buddy(const xino::nothrow_t &, xino::mm::phys_addr pa,
-                 std::size_t size) noexcept {
-    buddy_init(pa, size);
-  }
+    // Init as (free = 0, split = 0), buddy_free_pages init bits in buddy_init.
+    for (std::size_t i = 0; i < word_count; ++i) {
+      free_bits[i] = 0;
+      split_bits[i] = 0;
+    }
 
-  // Throwing init.
-  explicit buddy(xino::mm::phys_addr pa, std::size_t size) {
-    if (!buddy_init(pa, size))
-      throw std::invalid_argument{"buddy_init"};
+    return buddy_init(pa, size);
   }
 
   [[nodiscard]] bool is_ok() const noexcept {
@@ -51,13 +159,13 @@ public:
    *
    * @param order Allocation order (base-2 exponent).
    * @return Physical base address of the allocated page block.
-   * @throws std::runtime_error If the underlying buddy allocator cannot satisfy
-   *         the request. The exception message is @c "buddy_alloc_pages".
+   * @throws `std::runtime_error` if the underlying buddy allocator failed.
+   *         The exception message is `buddy_alloc_pages`.
    */
   [[nodiscard]] xino::mm::phys_addr alloc_pages(unsigned order) {
-    const auto pa = buddy_alloc_pages(order);
-    if (pa.has_value())
-      return pa.value();
+    const xino::mm::phys_addr pa{buddy_alloc_pages(order)};
+    if (pa != xino::mm::phys_addr{0})
+      return pa;
 
     throw std::runtime_error{"buddy_alloc_pages"};
   }
@@ -68,15 +176,11 @@ public:
    * @param nothrow Tag selecting the non-throwing overload.
    * @param order Allocation order (base-2 exponent).
    * @return Physical base address of the allocated page block on success;
-   *         otherwise @c xino::mm::phys_addr{0}.
+   *         otherwise `xino::mm::phys_addr{0}` (see @ref buddy_alloc_pages).
    */
   [[nodiscard]] xino::mm::phys_addr alloc_pages(const xino::nothrow_t &,
                                                 unsigned order) noexcept {
-    const auto pa = buddy_alloc_pages(order);
-    if (pa.has_value())
-      return pa.value();
-
-    return xino::mm::phys_addr{0};
+    return buddy_alloc_pages(order);
   }
 
   void free_pages(xino::mm::phys_addr pa, unsigned order) noexcept {
@@ -84,58 +188,49 @@ public:
   }
   ///@}
 
-  /**
-   * @brief Convert a block size expressed in pages to an order (log2).
-   *
-   * @param pages Block size in pages.
-   * @return The order corresponding to @p pages.
-   *
-   * @note If @p pages is not a power of two, the result is effectively
-   *       `floor(log2(pages))`, not a rounding-up order.
-   */
-  [[nodiscard]] static constexpr unsigned
-  pages_to_order(std::size_t pages) noexcept {
-    unsigned r = 0;
-    while (pages > 1) {
-      pages >>= 1;
-      ++r;
-    }
-    return r;
-  }
-
-  /**
-   * @brief Convert an order to a block size in pages.
-   *
-   * @param order Order to convert.
-   * @return Block size in pages (`1U << order`).
-   */
-  [[nodiscard]] static constexpr std::size_t
-  order_to_pages(unsigned order) noexcept {
-    return std::size_t{1} << order;
-  }
-
 private:
-  [[nodiscard]] bool buddy_init(xino::mm::phys_addr pa, std::size_t size) {
-    xino::mm::phys_addr end{pa + size};
+  /**
+   * @brief Initialize the buddy allocator pool over a physical address range.
+   *
+   * This function sets up the buddy allocator to manage a page-aligned subrange
+   * of the provided physical memory interval. The effective managed range is
+   * constructed as:
+   *
+   *   - `base = align_up(pa, page_size)`
+   *   - `end  = align_down(pa + size, page_size)`
+   *
+   * and is treated as a half-open interval `[base, end)`.
+   *
+   * @param pa Starting physical address of the candidate pool.
+   * @param size Size in bytes of the candidate pool.
+   *
+   * @retval `xino::error_nr::ok` Success.
+   * @retval `xino::error_nr::overflow` Address overflow.
+   * @retval `xino::error_nr::invalid` The aligned region is empty or the pool
+   *         contains more pages than the allocator can represent.
+   */
+  [[nodiscard]] xino::error_t buddy_init(xino::mm::phys_addr pa,
+                                         std::size_t size) {
+    using av_t = xino::mm::phys_addr::value_type;
+
     // Check for overflow.
-    if (end < pa)
-      return false;
+    if (pa + size < pa)
+      return xino::error_nr::overflow;
 
-    end = end.align_down(page_size);
-
+    // Construct `[base, end)` as a page aligned range.
     xino::mm::phys_addr base{pa.align_up(page_size)};
+    xino::mm::phys_addr end{(pa + size).align_down(page_size)};
     // Check if at least single page available.
     if (end <= base)
-      return false;
+      return xino::error_nr::invalid;
 
-    // Real pool size (page-aligned).
-    size = static_cast<xino::mm::phys_addr::value_type>(end) -
-           static_cast<xino::mm::phys_addr::value_type>(base);
+    // Aligned pool size of `[base, end)`.
+    size = static_cast<av_t>(end) - static_cast<av_t>(base);
 
     std::size_t pages = size / page_size;
     // The allocator represents at most `2^Order` pages.
     if (pages > order_to_pages(Order))
-      return false;
+      return xino::error_nr::invalid;
 
     const unsigned odr = pages_to_order(pages);
 
@@ -151,21 +246,22 @@ private:
          xino::mm::phys_addr_range(base, end, page_size))
       buddy_free_pages(it, 0);
 
-    return true;
+    return xino::error_nr::ok;
   }
 
   /**
-   * @brief Allocate a buddy block of size @c 2^order pages.
+   * @brief Allocate a contiguous block of pages from the buddy allocator.
    *
-   * @param order Buddy order in pages (0 => 1 page, 1 => 2 pages, ...).
-   * @return Physical address, or @c std::nullopt on failure.
+   * @param order Buddy order of the block.
+   * @return Physical address, or `xino::mm::phys_addr{0}` if the allocator is
+   *         not initialized, @p order exceeds `max_ord`, or no suitable free
+   *         block exists.
    */
-  [[nodiscard]] std::optional<xino::mm::phys_addr>
-  buddy_alloc_pages(unsigned order) {
+  [[nodiscard]] xino::mm::phys_addr buddy_alloc_pages(unsigned order) {
     if (!is_ok() || order > max_ord)
-      return std::nullopt;
+      return xino::mm::phys_addr{0};
 
-    // Find smallest order >= requested with any free node.
+    // Find smallest order >= requested order with any free node.
     unsigned o = order;
     std::size_t node = 0;
     for (; o <= max_ord; o++) {
@@ -176,7 +272,7 @@ private:
 
     // No free block found.
     if (node == 0)
-      return std::nullopt;
+      return xino::mm::phys_addr{0};
 
     // Consume that free node and split down.
     clear_bit(free_bits, node);
@@ -191,7 +287,18 @@ private:
     return base_pa + (node_to_page_index(node, order) * page_size);
   }
 
+  /**
+   * @brief Free an allocated block of pages back to the buddy allocator.
+   *
+   * Frees contiguous pages starting at physical address @p pa and attempts to
+   * coalesce the block with its buddy blocks while possible.
+   *
+   * @param pa Physical start address of the block to free.
+   * @param order Buddy order of the block.
+   */
   void buddy_free_pages(xino::mm::phys_addr pa, unsigned order) {
+    using av_t = xino::mm::phys_addr::value_type;
+
     if (!is_ok() || order > max_ord)
       return;
 
@@ -199,15 +306,15 @@ private:
     if (!pa.is_align(page_size))
       return;
 
-    // Check if pa is in range [base_pa, end_pa).
-    if (pa < base_pa || pa > end_pa - order_to_pages(order) * page_size)
+    const std::size_t span = order_to_pages(order) * page_size;
+    // Check if pa is in range `[base_pa, end_pa)`.
+    if (pa < base_pa || pa > end_pa - span)
       return;
 
-    // Offset and page index from base.
-    const std::uintptr_t off_bytes{
-        static_cast<xino::mm::phys_addr::value_type>(pa) -
-        static_cast<xino::mm::phys_addr::value_type>(base_pa)};
-    const std::size_t page_idx{static_cast<std::size_t>(off_bytes / page_size)};
+    // Page index from base.
+    const std::uintptr_t off{static_cast<av_t>(pa) -
+                             static_cast<av_t>(base_pa)};
+    const std::size_t page_idx{static_cast<std::size_t>(off / page_size)};
 
     // page_index >> order is "block index".
     std::size_t node = node_number(order, page_idx >> order);
@@ -226,12 +333,12 @@ private:
     // Coalesce upward while buddy is free.
     unsigned o = order;
     while (o < max_ord) {
-      const std::size_t bud = node ^ 1; // Node buddy.
-      if (!test_bit(free_bits, bud))
+      const std::size_t node_bud = node ^ 1; // Node buddy.
+      if (!test_bit(free_bits, node_bud))
         break;
 
-      clear_bit(free_bits, node); // Free this node.
-      clear_bit(free_bits, bud);  // Free node buddy.
+      clear_bit(free_bits, node);     // Free this node.
+      clear_bit(free_bits, node_bud); // Free node buddy.
 
       node >>= 1;                  // Ascend to parent.
       clear_bit(split_bits, node); // Parent no longer split
@@ -241,7 +348,7 @@ private:
     }
   }
 
-  // Allocator state (buddy allocator using binary tree).
+  /* Allocator state (buddy allocator using binary tree). */
 
   // Nodes in N-level (`N = Order + 1`) binary tree is `2^N - 1`.
   // `node_count = 2^N`, nodes are `[1 .. 2^N - 1]`, node 0 is unused.
@@ -252,16 +359,17 @@ private:
   static constexpr std::size_t word_count{(node_count + word_bits - 1) /
                                           word_bits};
 
-  xino::mm::phys_addr base_pa{}; // Start physical address (inclusive).
-  xino::mm::phys_addr end_pa{};  // End physical address (exclusive)
-  std::size_t pool_pages{};      // Number of pages in the pool.
-  std::size_t page_size{xino::mm::va_layout::granule_size()};
-  unsigned max_ord{};
+  static constexpr std::size_t page_size{xino::mm::va_layout::granule_size()};
+
+  // Pool state.
+  xino::mm::phys_addr base_pa; // Start physical address (inclusive).
+  xino::mm::phys_addr end_pa;  // End physical address (exclusive)
+  std::size_t pool_pages;      // Number of pages in the pool.
+  unsigned max_ord;            // Max order supported (maybe < `Order`).
 
   // Binary tree state.
-  // Let's avoid std::bitwise<N> to control exception.
-  std::uint64_t free_bits[word_count]{};
-  std::uint64_t split_bits[word_count]{};
+  std::uint64_t free_bits[word_count];
+  std::uint64_t split_bits[word_count];
 
   /**
    * Binary tree buddy description.
@@ -290,13 +398,13 @@ private:
    * and `split_bits[word_count]`.
    *
    *  ----------------------------------------------------------------------
-   *     free   |   free   | Description
+   *     free   |   split   |  Description
    *  ----------------------------------------------------------------------
-   *      1          0       Node is a free block available for
-   *                         allocation at that order.
-   *      0          1       Node is split; children represent the state.
-   *      0          0       Node is allocated at that order.
-   *      1          1       Invalid.
+   *      1           0        Node is a free block available for
+   *                           allocation at that order.
+   *      0           1        Node is split; children represent the state.
+   *      0           0        Node is allocated at that order.
+   *      1           1        Invalid.
    */
 
   // Block index -> Node number.
@@ -328,14 +436,14 @@ private:
     return find_set_in_range(free_bits, first, last);
   }
 
-  /* Static helpers (all noexcept). */
+  /* Static bitops helpers (all noexcept). */
 
-  // Bitwise ops.
-
+  // Index of the word in `std::uint64_t` array that contains a given bit.
   [[nodiscard]] static std::size_t word_of_bit(std::size_t bit) noexcept {
     return bit / word_bits;
   }
 
+  // Position of a bit within its containing word in `std::uint64_t` array.
   [[nodiscard]] static unsigned bit_in_word(std::size_t bit) noexcept {
     return static_cast<unsigned>(bit & (word_bits - 1));
   }
@@ -351,6 +459,12 @@ private:
 
   static void clear_bit(std::uint64_t *bits, std::size_t bit) noexcept {
     bits[word_of_bit(bit)] &= ~(std::uint64_t{1} << bit_in_word(bit));
+  }
+
+  // Assume v != 0.
+  // Use `__builtin_ctzll` instead of `counter_zero` to reduce dependency.
+  [[nodiscard]] static unsigned ctz64(std::uint64_t v) noexcept {
+    return static_cast<unsigned>(__builtin_ctzll(v));
   }
 
   /**
@@ -388,39 +502,43 @@ private:
       const std::uint64_t v = bits[st_word] & st_mask & lst_mask;
       if (v == 0)
         return 0;
-      return (st_word * word_bits) + std::countr_zero(v);
+      return (st_word * word_bits) + ctz64(v);
     }
 
     // First word (likely case).
     {
       const std::uint64_t v = bits[st_word] & st_mask;
       if (v != 0)
-        return (st_word * word_bits) + std::countr_zero(v);
+        return (st_word * word_bits) + ctz64(v);
     }
 
     // Middle words (tight loop).
     for (std::size_t w{st_word + 1}; w < lst_word; ++w) {
       const std::uint64_t v = bits[w];
       if (v != 0)
-        return (w * word_bits) + std::countr_zero(v);
+        return (w * word_bits) + ctz64(v);
     }
 
     // Last word.
     {
       const std::uint64_t v = bits[lst_word] & lst_mask;
       if (v != 0)
-        return (lst_word * word_bits) + std::countr_zero(v);
+        return (lst_word * word_bits) + ctz64(v);
     }
 
     return 0;
   }
 };
 
-/* Add other allocator, if required. */
-/* class alloc { XXX }; */
+/* Boot buddy allocator. */
 
-} // namespace allocator
+constexpr std::size_t boot_allocator_max_order{
+    size_to_order(UKERNEL_BOOT_HEAP_SIZE)};
 
-} // namespace xino
+using boot_allocator_t = xino::allocator::buddy<boot_allocator_max_order>;
+
+extern boot_allocator_t boot_allocator;
+
+} // namespace xino::allocator
 
 #endif // __ALLOCATOR_HPP__

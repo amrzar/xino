@@ -297,6 +297,10 @@ void install_kernel_ttbr(xino::mm::phys_addr ttbr1_pa,
   install_ttbr<xino::cpu::ttbr1_el2>(ttbr1_pa, asid);
 }
 
+/* Boot. */
+
+constinit bool mmu_on{};
+
 void enable_mmu() noexcept {
   using xino::cpu::sctlr_el2;
 
@@ -361,7 +365,5 @@ void invalidate_ipa_range(xino::mm::ipa_addr ipa, std::size_t size) noexcept {
   dsb<opt::ish>();
   isb();
 }
-
-/* Pagetable Ops. */
 
 } // namespace xino::mm::paging

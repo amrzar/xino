@@ -22,20 +22,14 @@
  * @date 2025
  */
 
-#include <config.h> // for C_SHIM_HEAP_SIZE, UKERNEL_PAGE_nK.
+#include <config.h> // for UKERNEL_PAGE_SIZE.
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>    // for memcpy.
 #include <sys/queue.h> // for LIST_ENTRY, LIST_HEAD, etc.
 
-#if defined(UKERNEL_PAGE_4K)
-#define C_SHIM_PAGE_SIZE 0x1000
-#elif defined(UKERNEL_PAGE_16K)
-#define C_SHIM_PAGE_SIZE 0x4000
-#else
-#error "C_SHIM_PAGE_SIZE is undefined"
-#endif
+#define C_SHIM_PAGE_SIZE UKERNEL_PAGE_SIZE
 
 void *alloc_page(unsigned order) __attribute__((weak));
 void free_page(void *va, unsigned order) __attribute__((weak));

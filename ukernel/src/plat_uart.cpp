@@ -22,7 +22,7 @@ void PL011::init(const xino::mm::virt_addr &new_base, bool fifo) noexcept {
 void PL011::putc(char c) noexcept {
   using namespace xino::io;
 
-  if (uart_base == xino::mm::virt_addr{0})
+  if (uart_base == xino::mm::virt_addr{})
     return;
 
   if (c == '\n') {
@@ -51,7 +51,7 @@ void DW_APB::init(const xino::mm::virt_addr &new_base, bool fifo) noexcept {
 void DW_APB::putc(char c) noexcept {
   using namespace xino::io;
 
-  if (uart_base == xino::mm::virt_addr{0})
+  if (uart_base == xino::mm::virt_addr{})
     return;
 
   if (c == '\n') {

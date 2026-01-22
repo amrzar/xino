@@ -1,5 +1,7 @@
 
-#include <cstdlib> // for std::malloc and ste::free.
+#include <allocator.hpp> // xino::allocator::boot_allocator
+#include <cstdlib>       // for std::malloc and ste::free
+#include <mm_va_layout.hpp>
 #include <new>
 
 extern "C" {
@@ -40,12 +42,16 @@ static void deregister_eh_frames() {
 void main();
 
 extern "C" void ukernel_entry() {
+  /* uKernel has been relocated, and the boot allocator is functional. */
+
   register_eh_frames();
   run_init_array();
   main();
   run_fini_array();
   deregister_eh_frames();
 }
+
+/* NEW and DELETE operators. */
 
 void *operator new(std::size_t sz) {
   void *ptr = std::malloc(sz);
@@ -61,6 +67,20 @@ void *operator new[](std::size_t sz) {
   throw std::bad_alloc{};
 }
 
+void *operator new(std::size_t sz, std::align_val_t align) {
+  void *ptr = std::aligned_alloc(sz, static_cast<std::size_t>(align));
+  if (ptr)
+    return ptr;
+  throw std::bad_alloc{};
+}
+
+void *operator new[](std::size_t sz, std::align_val_t align) {
+  void *ptr = std::aligned_alloc(sz, static_cast<std::size_t>(align));
+  if (ptr)
+    return ptr;
+  throw std::bad_alloc{};
+}
+
 void *operator new(std::size_t sz, const std::nothrow_t &) noexcept {
   return malloc(sz);
 }
@@ -69,10 +89,55 @@ void *operator new[](std::size_t sz, const std::nothrow_t &) noexcept {
   return malloc(sz);
 }
 
+void *operator new(std::size_t sz, std::align_val_t align,
+                   const std::nothrow_t &) noexcept {
+  return aligned_alloc(sz, static_cast<std::size_t>(align));
+}
+
+void *operator new[](std::size_t sz, std::align_val_t align,
+                     const std::nothrow_t &) noexcept {
+  return aligned_alloc(sz, static_cast<std::size_t>(align));
+}
+
 void operator delete(void *ptr) noexcept { std::free(ptr); }
 
 void operator delete[](void *ptr) noexcept { std::free(ptr); }
 
+void operator delete(void *ptr, std::align_val_t align) noexcept { free(ptr); }
+
+void operator delete[](void *ptr, std::align_val_t align) noexcept {
+  free(ptr);
+}
+
 void operator delete(void *ptr, std::size_t sz) noexcept { std::free(ptr); }
 
 void operator delete[](void *ptr, std::size_t sz) noexcept { std::free(ptr); }
+
+void operator delete(void *ptr, std::size_t sz,
+                     std::align_val_t align) noexcept {
+  free(ptr);
+}
+
+void operator delete[](void *ptr, std::size_t sz,
+                       std::align_val_t align) noexcept {
+  free(ptr);
+}
+
+/* malloc()-family allocator. */
+
+void *alloc_page(unsigned order) {
+  xino::mm::phys_addr pa{
+      xino::allocator::boot_allocator.alloc_pages(xino::nothrow, order)};
+
+  if (pa == xino::mm::phys_addr{0})
+    return NULL;
+  return static_cast<void *>(xino::mm::va_layout::phys_to_virt(pa));
+}
+
+void free_page(void *va, unsigned order) {
+  std::optional<xino::mm::phys_addr> pa{
+      xino::mm::va_layout::virt_to_phys(xino::mm::virt_addr{va})};
+
+  if (pa.has_value())
+    xino::allocator::boot_allocator.free_pages(pa.value(), order);
+}

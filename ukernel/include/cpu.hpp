@@ -26,6 +26,7 @@ using vttbr_el2 = R::VTTBR_EL2;
 using daif = R::DAIF;
 using daifset = R::DAIFSet;
 using daifclr = R::DAIFClr;
+using tpidr_el2 = R::TPIDR_EL2;
 ///@}
 
 struct cpu_state {
