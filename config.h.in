@@ -15,13 +15,33 @@
 /* uKernel base address, see reloc.c. */
 #define UKERNEL_BASE @UKERNEL_BASE@
 #define UKERNEL_STACK_SIZE @UKERNEL_STACK_SIZE@
+#define UKERNEL_BOOT_HEAP_SIZE @UKERNEL_BOOT_HEAP_SIZE@
 
 /* Hardware: */
 
 #define UKERNEL_PLATFORM @UKERNEL_PLATFORM@
 
+/* CPU: */
+
+#define UKERNEL_CACHE_LINE @UKERNEL_CACHE_LINE@
+
+/* Drivers: */
+
 /* UART Configuration. */
 #define UKERNEL_UART_DRIVER @UKERNEL_UART_DRIVER@
 #define UKERNEL_UART_BASE @UKERNEL_UART_BASE@
+
+/* Constants and guards: */
+
+/* Page size. */
+#if defined(UKERNEL_PAGE_4K)
+  #define UKERNEL_PAGE_SHIFT 12U
+  #define UKERNEL_PAGE_SIZE 0x1000
+#elif defined(UKERNEL_PAGE_16K)
+  #define UKERNEL_PAGE_SHIFT 14U
+  #define UKERNEL_PAGE_SIZE 0x4000
+#else
+#error "UKERNEL_PAGE_4K and UKERNEL_PAGE_16K are supported"
+#endif
 
 #endif /* CONFIG_H */

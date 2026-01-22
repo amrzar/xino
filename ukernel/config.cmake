@@ -22,6 +22,9 @@ set(UKERNEL_KIMAGE_SLOT_SIZE "0x20000000" CACHE INTERNAL
 set(UKERNEL_DEVMAP_SLOT_SIZE "0x4000000" CACHE INTERNAL
   "Device mapping size" FORCE)  # 64 Mb.
 
+set(UKERNEL_BOOT_HEAP_SIZE "0x2000000" CACHE INTERNAL
+  "uKernel heap used during boot" FORCE) # 32 Mb.
+
 # Platform:
 
 set(UKERNEL_PLATFORM "rock5b" CACHE STRING "Target platform")
@@ -40,3 +43,7 @@ if(UKERNEL_PLATFORM STREQUAL "rock5b")
 else()
   message(FATAL_ERROR "Unknown UKERNEL_PLATFORM='${UKERNEL_PLATFORM}'")
 endif()
+
+# CPU configurations
+
+set(UKERNEL_CACHE_LINE "64" CACHE STRING "")

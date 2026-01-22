@@ -8,6 +8,8 @@
 #include <errno.hpp>
 #include <mm.hpp> // phys_addr, virt_addr, ipa_addr, and prot
 #include <mm_va_layout.hpp>
+#include <runtime.hpp> // use_mapping
+#include <type_traits>
 
 /**
  * @anchor chapter_d8
@@ -27,10 +29,10 @@
  *
  * Figure D8-6 52-bit IA resolved using 16KB translation granule.
  *
- * 51      47 46          36 35         25 24         14 13                   0
- * +---------+--------------+-------------+-------------+---------------------+
- * |         |              |             |             |                     |
- * +---------+--------------+-------------+-------------+---------------------+
+ * 51       47 46         36 35         25 24         14 13                   0
+ * +----------+-------------+-------------+-------------+---------------------+
+ * |          |             |             |             |                     |
+ * +----------+-------------+-------------+-------------+---------------------+
  * IA[51:47] IA[46:36]      IA[35:25]     IA[24:14]     IA[13:0]
  * hw-L(0)   hw-L(1)        hw-L(2)       hw-L(3)
  *           64GB           32MB          16KB
@@ -137,8 +139,6 @@ constexpr unsigned level_shift_for_bits(unsigned addr_bits,
  * @param addr_bits VA bits (stage-1) or IPA bits (stage-2).
  * @param level Logical level `[0 .. levels_for_bits(addr_bits) - 1]`.
  * @note `level_size_for_bits()` assumes all levels can represent a region.
- *        Currently the lowest hw level for 4KB granule is 0 and for
- *        16KB granule is 1; see @ref chapter_d8 "above".
  */
 constexpr std::size_t level_size_for_bits(unsigned addr_bits,
                                           unsigned level) noexcept {
@@ -298,7 +298,7 @@ inline pte_t pte_phys_field_mask() {
 }
 
 inline pte_t pte_attr_field_mask() {
-  // e.g. 0xFFFF'0000'0000'0FFFUL for 4KB granule.
+  // e.g. 0xFFFF'0000'0000'0FFCUL for 4KB granule.
   return static_cast<pte_t>(~pte_phys_field_mask() & ~PTE_TYPE_MASK);
 }
 
@@ -399,7 +399,7 @@ struct pte_encoder<stage::ST_1>
       pte |= PTE_nG; // User page.
     }
 
-    if (!(p & xino::mm::prot::EXEC))
+    if (!(p & xino::mm::prot::EXECUTE))
       pte |= (PTE_PXN | PTE_UXN);
 
     return pte;
@@ -430,13 +430,15 @@ struct pte_encoder<stage::ST_2>
       // 00 => no access
     }
 
-    if (!(p & xino::mm::prot::EXEC)) {
+    if (!(p & xino::mm::prot::EXECUTE)) {
       pte |= PTE_UXN; // XN (conservative)
     }
 
     return pte;
   }
 };
+
+/* TLB Ops. */
 
 /** @brief Invalidate all EL2 stage-1 translations. */
 void invalidate_all_stage1() noexcept;
@@ -459,34 +461,94 @@ template <stage Stage> struct addr_for;
 /** @brief Stage-1 input address (VA + ASID). */
 template <> struct addr_for<stage::ST_1> {
   using addr_type = xino::mm::virt_addr;
-
-  addr_type addr{};
-  std::uint16_t asid{};
+  // Address type at stage-1.
+  addr_type addr;
+  std::uint16_t asid;
 };
 
 /** @brief Stage-2 input address (IPA). */
 template <> struct addr_for<stage::ST_2> {
   using addr_type = xino::mm::ipa_addr;
-
-  addr_type addr{};
+  // Address type at stage-2.
+  addr_type addr;
 };
 
+/**
+ * @brief Stage-parameterized page-table builder and manager.
+ *
+ * `page_table<Stage, Allocator>` owns and manipulates translation tables for:
+ *  - **Stage-1** translations (`Stage == stage::ST_1`): input address is
+ *    a VA tagged with an ASID via @ref addr_for.
+ *  - **Stage-2** translations (`Stage == stage::ST_2`): input address is
+ *    an IPA via @ref addr_for.
+ *
+ * The public API provides high-level operations over contiguous ranges:
+ * @ref map_range, @ref protect_range, and @ref unmap_range. Internally, the
+ * implementation may allocate intermediate page-table pages on demand, split
+ * larger block mappings into finer-grained tables when required, and perform
+ * the necessary TLB maintenance and barriers when the MMU is enabled.
+ *
+ * Ownership and lifetime:
+ *  - The page table is **uninitialized** after construction.
+ *  - Call @ref init exactly once to allocate and initialize the root table.
+ *  - Callers must ensure @ref deinit is invoked to teardown the page table.
+ *
+ * Thread-safety:
+ *  - This type is **not** internally synchronized. If concurrent operations
+ *    are possible, the caller must provide external synchronization.
+ *
+ * @tparam Stage Translation stage (stage::ST_1 or stage::ST_2).
+ * @tparam Allocator Allocator type that provides page-table page allocation and
+ *         freeing (e.g., `alloc_pages(nothrow, order)` / `free_pages(pa,
+ * order)`).
+ */
 template <stage Stage, typename Allocator> class page_table {
 public:
   /** @brief Stage-specific address type (VA + ASID or IPA). */
   using addr_t = addr_for<Stage>;
 
-  page_table() = delete;
+  /**
+   * @brief Initialize the page table by allocating the root translation table.
+   *
+   * This function must be called exactly once before any mapping operation.
+   * After successful initialization, @ref root returns the physical address of
+   * the root translation table suitable for programming TTBR (stage-1) or VTTBR
+   * (stage-2).
+   *
+   * @param a Allocator used to allocate and free page-table pages.
+   *
+   * @retval `xino::error_nr::ok` Root table allocated and initialized.
+   * @retval `xino::error_nr::nomem` Allocation failed (root remains invalid).
+   */
+  [[nodiscard]] xino::error_t init(Allocator a) noexcept {
+    // Check for double initlailize.
+    if (allocator || root_pa != xino::mm::phys_addr{0})
+      return xino::error_nr::invalid;
 
-  // No copy.
-  page_table(const page_table &) = delete;
+    allocator = &a;
+    // Setup root page.
+    root_pa = alloc_single_pt();
+    if (root_pa == xino::mm::phys_addr{0})
+      return xino::error_nr::nomem;
 
-  // No assignment.
-  page_table &operator=(const page_table &) = delete;
+    return xino::error_nr::ok;
+  }
 
-  explicit constexpr page_table(Allocator &a) noexcept : allocator{a} {
-    for (unsigned i{0}; i < entries_per_table(); i++)
-      pt_root[i] = PTE_TYPE_FAULT;
+  /** @brief Physical address of the root for page table. */
+  [[nodiscard]] xino::mm::phys_addr root() const noexcept { return root_pa; }
+
+  /**
+   * @brief Deinitialize the page table and release all owned page-table pages.
+   *
+   * Releases all page-table pages reachable from the current root and resets
+   * the root to 0. This routine performs **no TLB maintenance** and does not
+   * modify TTBR/VTTBR state.
+   */
+  void deinit() noexcept {
+    if (root_pa != xino::mm::phys_addr{0}) {
+      free_subtree(root_pa, 0);
+      root_pa = xino::mm::phys_addr{0};
+    }
   }
 
   // MAP, UNMAP, and PROTECT.
@@ -494,10 +556,15 @@ public:
   /**
    * @brief Map a contiguous address range to a contiguous physical range.
    *
-   * Maps `[a.addr, a.addr + size)` to `[pa, pa + size)` using protections @p p.
+   * Maps a range starting at @p a.addr to a range starting at @p pa using
+   * protections @p p. The covered size is rounded up to the translation
+   * granule: the mapping will cover at least `[a.addr, a.addr + size)`, and in
+   * practice covers `[a.addr, a.addr + round_up(size, granule_size))`.
+   *
    * The implementation attempts to use the largest feasible leaf level (block
-   * vs page) based on alignment and remaining size. If @p size is smaller than
-   * a page size, a single page is mapped.
+   * vs page) based on alignment and remaining size, allocating intermediate
+   * tables as needed. If @p size is smaller than a page size, a single page is
+   * mapped.
    *
    * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
    * @param pa Start physical address.
@@ -509,6 +576,9 @@ public:
    * @retval `xino::error_nr::invalid` Overlaps an existing valid mapping or
    *          @p a or @p pa is not page aligned.
    * @retval `xino::error_nr::nomem` Failed to allocate a page-table page.
+   *
+   * @note This routine is not atomic: if an error is returned, a prefix of the
+   *       requested range may already have been mapped.
    */
   [[nodiscard]] xino::error_t map_range(addr_t a, xino::mm::phys_addr pa,
                                         std::size_t size,
@@ -545,9 +615,13 @@ public:
   /**
    * @brief Update protections for an address range.
    *
-   * Updates permissions/attributes for mappings in `[a.addr, a.addr + size)`.
-   * This routine operates at the smallest granularity, and will split larger
-   * blocks as needed. If @p size is smaller than a page size, a single page
+   * Updates permissions/attributes for mappings covering at least
+   * `[a.addr, a.addr + size)`. Since protections are applied at translation
+   * granularity, the effective range is rounded up to the granule and this
+   * routine updates `[a.addr, a.addr + round_up(size, granule_size))`.
+   *
+   * This routine operates at page granularity and will split larger block
+   * mappings as needed. If @p size is smaller than a page size, a single page's
    * permissions/attributes is updated.
    *
    * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
@@ -559,6 +633,9 @@ public:
    * @retval `xino::error_nr::invalid` A target entry is unmapped or not a leaf
    *          or @p a is not page aligned.
    * @retval `xino::error_nr::nomem` Failed to allocate a page-table page.
+   *
+   * @note This routine is not atomic: if an error is returned, a prefix of the
+   *       effective range may already have been updated.
    */
   [[nodiscard]] xino::error_t protect_range(addr_t a, std::size_t size,
                                             xino::mm::prot p) noexcept {
@@ -592,8 +669,14 @@ public:
   /**
    * @brief Unmap an address range.
    *
-   * Unmaps `[a.addr, a.addr + size)` at page granularity. Unmapping an already
-   * unmapped region is treated as a no-op for the corresponding pages.
+   * Unmaps translations covering at least `[a.addr, a.addr + size)`. Since
+   * unmapping is performed at translation granularity, the effective range is
+   * rounded up to the granule and this routine unmaps
+   * `[a.addr, a.addr + round_up(size, granule_size))`.
+   *
+   * Unmapping is performed at page granularity; larger block mappings are split
+   * as needed. Unmapping an already-unmapped region is treated as a no-op for
+   * the corresponding pages.
    *
    * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
    * @param size Size in bytes. A size of 0 is a no-op.
@@ -602,6 +685,9 @@ public:
    * @retval `xino::error_nr::overflow` Address overflow.
    * @retval `xino::error_nr::invalid` @p a is not page aligned.
    * @retval `xino::error_nr::nomem` Failed to allocate a page-table page.
+   *
+   * @note This routine is not atomic: if an error is returned, a prefix of the
+   *       effective range may already have been unmapped.
    */
   [[nodiscard]] xino::error_t unmap_range(addr_t a, std::size_t size) noexcept {
     if (size == 0)
@@ -639,23 +725,32 @@ private:
     UPDATE   /**< Replace an existing mapping/attributes. */
   };
 
+  [[nodiscard]] pte_t *pa_to_pte(xino::mm::phys_addr pa) noexcept {
+    xino::mm::virt_addr va{
+        xino::mm::va_layout::phys_to_virt(pa, xino::runtime::use_mapping)};
+
+    return va.ptr<pte_t>();
+  }
+
+  [[nodiscard]] pte_t *root_va() noexcept { return pa_to_pte(root_pa); }
+
   /**
    * @brief Allocate and initialize a single page-table page.
    *
-   * @return Physical address of the newly allocated page-table page, or
-   *         `xino::mm::phys_addr{0}` on failure.
+   * @return Physical address of the newly allocated page-table page
+   *         (initialized to FAULT) or `xino::mm::phys_addr{0}` on failure.
    */
   [[nodiscard]] xino::mm::phys_addr alloc_single_pt() noexcept {
     using namespace xino::barrier;
 
-    xino::mm::phys_addr pa{allocator.alloc_pages(xino::nothrow, 0)};
+    xino::mm::phys_addr pa{allocator->alloc_pages(xino::nothrow, 0)};
     if (pa == xino::mm::phys_addr{0})
       return pa;
 
-    pte_t *table{xino::mm::va_layout::phys_to_virt(pa).ptr<pte_t>()};
+    pte_t *t{pa_to_pte(pa)};
     // Init PTEs.
     for (unsigned i{0}; i < entries_per_table(); i++)
-      table[i] = PTE_TYPE_FAULT;
+      t[i] = PTE_TYPE_FAULT;
     // Make sure the table is in FAULT state.
     dmb<opt::ishst>();
 
@@ -686,9 +781,27 @@ private:
 
   // Other helper APIs.
 
-  [[nodiscard]] static bool aligned_for_level(const addr_t &a,
-                                              xino::mm::phys_addr pa,
-                                              unsigned level) noexcept {
+  /**
+   * @brief Check whether an address pair is aligned for mapping at a level.
+   *
+   * Determines whether the stage-specific input address @p a and the physical
+   * address @p pa are both aligned to the translation granularity of @p level,
+   * i.e. `level_size(level)`.
+   *
+   * This predicate is used when choosing whether a mapping can be installed as
+   * a block at an intermediate level (larger granularity) or must fall back to
+   * a finer level (eventually a page at the last level).
+   *
+   * @param a Stage-specific input address.
+   * @param pa Physical base address to be mapped.
+   * @param level Logical level index whose mapping granularity is tested.
+   *
+   * @retval true Both @p a.addr and @p pa are aligned to `level_size(level)`.
+   * @retval false Otherwise.
+   */
+  [[nodiscard]] static bool addr_suitable_for_level(const addr_t &a,
+                                                    xino::mm::phys_addr pa,
+                                                    unsigned level) noexcept {
     using av_t = typename addr_t::addr_type::value_type;
 
     const std::size_t size{level_size(level)};
@@ -698,13 +811,35 @@ private:
             (size - 1)) == 0;
   }
 
+  /**
+   * @brief Choose the most suitable leaf level for mapping a chunk.
+   *
+   * Selects the largest translation granularity (highest-level block) that can
+   * be used to map the next chunk of a contiguous region starting at @p a.addr
+   * to @p pa, given that @p size bytes remain to be mapped.
+   *
+   * The chosen level satisfies both:
+   *  - Remaining size is at least the level's mapping size
+   *    (`size >= level_size(level)`).
+   *  - Both the input address and physical address are aligned for that level
+   *    (@ref addr_suitable_for_level).
+   *
+   * If no block level is suitable, this function returns the last level
+   * (`levels() - 1`), i.e. page granularity.
+   *
+   * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
+   * @param pa Physical address to map to.
+   * @param size Remaining size in bytes to map starting at @p a/@p pa.
+   *
+   * @return Selected leaf level to use for the next mapping operation.
+   */
   [[nodiscard]] static unsigned choose_leaf_level(const addr_t &a,
                                                   xino::mm::phys_addr pa,
                                                   std::size_t size) noexcept {
     const unsigned lvls{levels()};
 
     for (unsigned level{0}; level < lvls; level++) {
-      if (size >= level_size(level) && aligned_for_level(a, pa, level))
+      if (size >= level_size(level) && addr_suitable_for_level(a, pa, level))
         return level;
     }
 
@@ -712,20 +847,21 @@ private:
     return lvls - 1;
   }
 
-  [[nodiscard]] static unsigned index_for(const addr_t &a,
-                                          unsigned level) noexcept {
+  [[nodiscard]] static unsigned
+  table_index_at_level(const addr_t &a, unsigned at_level) noexcept {
     using av_t = typename addr_t::addr_type::value_type;
 
-    const unsigned shift{level_shift(level)};
+    const unsigned shift{level_shift(at_level)};
     // Index to the table at a level.
     return static_cast<unsigned>((static_cast<av_t>(a.addr) >> shift) &
                                  (entries_per_table() - 1));
   }
 
   // Return address that suitable to map at specified level.
-  [[nodiscard]] static addr_t block_base(addr_t a, unsigned level) noexcept {
-    // Update address, keep ASID untouched..
-    a.addr = a.addr.align_down(level_size(level));
+  [[nodiscard]] static addr_t addr_at_level(addr_t a,
+                                            unsigned at_level) noexcept {
+    // Update address, keep ASID untouched.
+    a.addr = a.addr.align_down(level_size(at_level));
 
     return a;
   }
@@ -745,6 +881,15 @@ private:
 
   [[nodiscard]] static bool entry_is_valid(pte_t pte) noexcept {
     return !pte_is_fault(pte);
+  }
+
+  [[nodiscard]] static pte_t
+  entry_at_level(xino::mm::phys_addr pa, xino::mm::prot p, unsigned at_level) {
+    const bool device{static_cast<bool>(p & xino::mm::prot::DEVICE)};
+
+    return (at_level + 1) < levels()
+               ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
+               : pte_encoder<Stage>::make_leaf_page(pa, p, device);
   }
 
   static void invalidate_range(const addr_t &a, std::size_t size) noexcept {
@@ -787,11 +932,15 @@ private:
    * @param slot Reference to the PTE slot being updated.
    * @param value Descriptor value to write.
    */
-  static void write_pte_and_sync(kind k, const addr_t &a, std::size_t size,
-                                 pte_t &slot, pte_t value) noexcept {
+  void write_pte_and_sync(kind k, const addr_t &a, std::size_t size,
+                          pte_t &slot, pte_t value) noexcept {
     using namespace xino::barrier;
 
-    if (xino::mm::mmu_on) [[likely]] {
+    if (!xino::runtime::use_mapping) [[unlikely]] {
+      // MMU is off, install descriptor.
+      slot = value;
+    } else {
+      // MMU is on, do break-before-make.
       if (k == kind::UPDATE || k == kind::REMOVE) {
         slot = PTE_TYPE_FAULT;
         dsb<opt::ishst>();
@@ -799,12 +948,10 @@ private:
         dsb<opt::ish>();
         isb();
       }
-    }
 
-    // Install descriptor.
-    slot = value;
+      // Install descriptor.
+      slot = value;
 
-    if (xino::mm::mmu_on) [[likely]] {
       dsb<opt::ishst>();
       invalidate_range(a, size);
       dsb<opt::ish>();
@@ -813,36 +960,22 @@ private:
   }
 
   /**
-   * @brief Ensure a child page-table exists at the given entry and return it.
+   * @brief Allocate and link a new child page-table for a FAULT entry.
    *
-   * For a non-leaf level, the current table entry must either already reference
-   * a child table or be empty (FAULT).
+   * Allocates a fresh page-table page initialized to `PTE_TYPE_FAULT`,
+   * installs a table descriptor into @p entry that points to it,
+   * and returns the new child table's physical address in @p child.
    *
-   * - If @p entry already points to a table, the child table physical address
-   *   is returned in @p child.
-   * - If @p entry is FAULT, a new page-table page is allocated, initialized to
-   *   FAULT entries, and @p entry is set to a "table descriptor" that points to
-   *   the new child. The new child physical address is returned in @p child.
-   *
-   * @param[in,out] entry Table entry at the current level to examine/modify.
-   * @param[in] level Current level of @p entry within the walk.
+   * @param[in,out] entry Table entry to modify.
    * @param[out] child Receives the physical address of the child table.
    *
    * @retval `xino::error_nr::ok` Child table is available and returned.
-   * @retval `xino::error_nr::invalid` @p entry was valid but not a table.
+   * @retval `xino::error_nr::invalid` @p entry was not FAULT.
    * @retval `xino::error_nr::nomem` Allocation of a new child table failed.
    */
   [[nodiscard]] xino::error_t
-  ensure_next_table(pte_t &entry, unsigned level,
-                    xino::mm::phys_addr &child) noexcept {
-    // If PTE is already a table return it.
-    if (entry_is_table(level, entry)) {
-      child = pte_encoder<Stage>::pte_to_phys(entry);
+  alloc_and_link_table(pte_t &entry, xino::mm::phys_addr &child) noexcept {
 
-      return xino::error_nr::ok;
-    }
-
-    // If PTE is valid but not a table, i.e. already mapped.
     if (!pte_is_fault(entry))
       return xino::error_nr::invalid;
 
@@ -853,7 +986,7 @@ private:
     // Install the table; FAULT to VALID, so no sync.
     // `alloc_single_pt()` already does `dmb<opt::ishst>()`.
     entry = pte_encoder<Stage>::make_table(pa);
-
+    // Return tables's physical address.
     child = pa;
 
     return xino::error_nr::ok;
@@ -890,7 +1023,7 @@ private:
     if (!entry_is_block(entry))
       return xino::error_nr::ok;
 
-    const std::size_t ls = level_size(level);
+    const std::size_t ls{level_size(level)};
     // `a` should be page aligned for the block at level.
     if (!a.addr.is_align(ls))
       return xino::error_nr::invalid;
@@ -899,7 +1032,7 @@ private:
     if (pa == xino::mm::phys_addr{0})
       return xino::error_nr::nomem;
 
-    pte_t *table{xino::mm::va_layout::phys_to_virt(pa).ptr<pte_t>()};
+    pte_t *t{pa_to_pte(pa)};
 
     // Extracts the physical address and attributes from the PTE.
     const xino::mm::phys_addr pte_pa{pte_encoder<Stage>::pte_to_phys(entry)};
@@ -916,7 +1049,7 @@ private:
               ? pte_encoder<Stage>::make_leaf_block_attr(next, pte_attr)
               : pte_encoder<Stage>::make_leaf_page_attr(next, pte_attr);
 
-      table[i] = leaf;
+      t[i] = leaf;
     }
 
     // Make sure updates to table are visible.
@@ -932,145 +1065,326 @@ private:
 
   // PTE operations: MAP, UNMAP, and PROTECT.
 
+  /**
+   * @brief Map a single translation at a selected level.
+   *
+   * Installs exactly one leaf descriptor that maps the stage-specific input
+   * address @p a to physical address @p pa with protections @p p, at the
+   * mapping granularity implied by @p leaf_level (`level_size(leaf_level)`).
+   *
+   * ## Design
+   *
+   * The function walks the translation-table hierarchy from the root down to
+   * the parent of @p leaf_level:
+   *  - If an intermediate entry is FAULT, a new child table is allocated and
+   *    linked via @ref alloc_and_link_table and the walk continues.
+   *  - If an intermediate entry is a table descriptor, the walk descends.
+   * At @p leaf_level, the target entry must be FAULT; otherwise the mapping
+   * would overlap an existing mapping and the function fails.
+   *
+   * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
+   * @param pa Physical base address to map to.
+   * @param p Protection/attribute flags.
+   * @param leaf_level Leaf level at which to install the mapping.
+   *
+   * @retval `xino::error_nr::ok` Mapping installed.
+   * @retval `xino::error_nr::invalid` Overlaps an existing valid mapping
+   *         (including a block at an intermediate level), or the target leaf
+   *         entry was not FAULT.
+   * @retval `xino::error_nr::nomem` Allocation of an intermediate table failed.
+   */
   [[nodiscard]] xino::error_t map_one(const addr_t &a, xino::mm::phys_addr pa,
                                       xino::mm::prot p,
                                       unsigned leaf_level) noexcept {
-    pte_t *t{pt_root};
+    pte_t *t{root_va()};
 
     for (unsigned level{0}; level < leaf_level; level++) {
-      const unsigned idx = index_for(a, level);
+      const unsigned idx{table_index_at_level(a, level)};
 
-      pte_t &entry = t[idx];
+      pte_t &entry{t[idx]};
 
-      // If entry is a block, allocate a table and break the block.
-      if (auto ret = split_block(block_base(a, level), entry, level);
-          ret != xino::error_nr::ok)
-        return ret;
+      if (entry_is_valid(entry)) {
+        // Overlaps an existing mapping unless it is a table.
+        if (!entry_is_table(level, entry))
+          return xino::error_nr::invalid;
 
+        // DESCEND:
+        t = pa_to_pte(pte_encoder<Stage>::pte_to_phys(entry));
+
+        continue;
+      }
+
+      // FAULT but at level < leaf_level; install a table.
       xino::mm::phys_addr child{};
-      // At level < leaf_level, make sure entry is a table.
-      if (auto ret = ensure_next_table(entry, level, child);
+      if (auto ret{alloc_and_link_table(entry, child)};
           ret != xino::error_nr::ok)
         return ret;
 
-      t = xino::mm::va_layout::phys_to_virt(child).ptr<pte_t>();
+      t = pa_to_pte(child);
     }
 
     // At leaf_level, t should be updated.
 
-    const unsigned idx = index_for(a, leaf_level);
+    const unsigned idx{table_index_at_level(a, leaf_level)};
+
     // Make sure entry is FAULT.
     if (entry_is_valid(t[idx]))
       return xino::error_nr::invalid;
 
-    const bool device = static_cast<bool>(p & xino::mm::prot::DEVICE);
-
-    const pte_t pte = (leaf_level + 1) < levels()
-                          ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
-                          : pte_encoder<Stage>::make_leaf_page(pa, p, device);
-
-    write_pte_and_sync(kind::INSTALL, block_base(a, leaf_level),
+    const pte_t pte{entry_at_level(pa, p, leaf_level)};
+    // Install PTE at table idx.
+    write_pte_and_sync(kind::INSTALL, addr_at_level(a, leaf_level),
                        level_size(leaf_level), t[idx], pte);
 
     return xino::error_nr::ok;
   }
-
+  /**
+   * @brief Unmap a single translation at a selected level.
+   *
+   * Removes the translation rooted at the entry corresponding to the
+   * stage-specific input address @p a at @p leaf_level, covering the range
+   * `level_size(leaf_level)`. The translation could be:
+   *  - a leaf mapping descriptor (block or page), which is cleared to FAULT, or
+   *  - a table descriptor, in which case the entire child subtree is detached
+   *    and all page-table pages in that subtree are freed.
+   *
+   * ## Design
+   *
+   * The function walks the translation-table hierarchy from the root down to
+   * the parent of @p leaf_level:
+   *  - If any intermediate entry is FAULT, there is nothing to unmap.
+   *  - If an intermediate entry is a block mapping and finer granularity is
+   *    required to reach @p leaf_level, the block is split via @ref split_block
+   *    and the walk continues through the newly created child table.
+   * At @p leaf_level:
+   *  - If the entry is FAULT, this is a no-op.
+   *  - If the entry is a table descriptor, the entry is first detached, then
+   *    the child subtree is freed via @ref free_subtree.
+   *  - Otherwise, the entry is a leaf mapping and is cleared to FAULT.
+   *
+   * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
+   * @param leaf_level Level at which to remove the translation.
+   *
+   * @retval `xino::error_nr::ok` Success (including the no-op case).
+   * @retval `xino::error_nr::invalid` Address alignment was invalid for a
+   *         required block split.
+   * @retval `xino::error_nr::nomem` Allocation of an intermediate table failed.
+   */
   [[nodiscard]] xino::error_t unmap_one(const addr_t &a,
                                         unsigned leaf_level) noexcept {
-    pte_t *t{pt_root};
+    pte_t *t{root_va()};
 
     for (unsigned level{0}; level < leaf_level; level++) {
-      const unsigned idx = index_for(a, level);
+      const unsigned idx{table_index_at_level(a, level)};
 
-      pte_t &entry = t[idx];
+      pte_t &entry{t[idx]};
 
       // If entry is not valid, there is nothing to unmap.
       if (!entry_is_valid(entry))
         return xino::error_nr::ok;
 
-      if (entry_is_block(entry)) {
-        // If entry is a block, allocate a table and break the block.
-        if (auto ret = split_block(block_base(a, level), entry, level);
-            ret != xino::error_nr::ok)
-          return ret;
-      }
+      // Allocate a table and break the block, if required.
+      if (auto ret{split_block(addr_at_level(a, level), entry, level)};
+          ret != xino::error_nr::ok)
+        return ret;
 
-      // After splitting, must be a table to continue (check only to be safe).
+      // Expect a table (after split_block()), check only to be safe.
       if (!entry_is_table(level, entry)) [[unlikely]]
         return xino::error_nr::ok;
 
-      const xino::mm::phys_addr child = pte_encoder<Stage>::pte_to_phys(entry);
       // t is a page table.
-      t = xino::mm::va_layout::phys_to_virt(child).ptr<pte_t>();
+      t = pa_to_pte(pte_encoder<Stage>::pte_to_phys(entry));
     }
 
     // At leaf_level, t should be updated.
 
-    const unsigned idx = index_for(a, leaf_level);
+    const unsigned idx{table_index_at_level(a, leaf_level)};
+
     // Make sure entry is not FAULT.
     if (!entry_is_valid(t[idx]))
       return xino::error_nr::ok;
 
-    write_pte_and_sync(kind::REMOVE, block_base(a, leaf_level),
-                       level_size(leaf_level), t[idx], PTE_TYPE_FAULT);
+    // For a table, remove the subtree.
+    if (entry_is_table(leaf_level, t[idx])) {
+      const xino::mm::phys_addr child{pte_encoder<Stage>::pte_to_phys(t[idx])};
+
+      // Set to FAULT, detach the subtree.
+      write_pte_and_sync(kind::REMOVE, addr_at_level(a, leaf_level),
+                         level_size(leaf_level), t[idx], PTE_TYPE_FAULT);
+
+      free_subtree(child, leaf_level + 1);
+    } else {
+      // Set to FAULT.
+      write_pte_and_sync(kind::REMOVE, addr_at_level(a, leaf_level),
+                         level_size(leaf_level), t[idx], PTE_TYPE_FAULT);
+    }
 
     return xino::error_nr::ok;
   }
 
+  /**
+   * @brief Update attributes of a single translation at a selected level.
+   *
+   * Updates attributes for the translation covering stage-specific input
+   * address @p a at the mapping granularity implied by @p leaf_level
+   * (`level_size(leaf_level)`).
+   *
+   * ## Design
+   *
+   * The function walks the translation-table hierarchy from the root down to
+   * the parent of @p leaf_level:
+   *  - If an intermediate entry is a block mapping and finer granularity is
+   *    required to reach @p leaf_level, the block is split via @ref split_block
+   *    and the walk continues through the newly created child table.
+   * At @p leaf_level:
+   *  - If the entry is FAULT, the target is unmapped and the function fails.
+   *  - If the entry is a leaf mapping (block/page), the mapping's physical
+   *    address is preserved and its attribute fields are replaced.
+   *  - If the entry is a table descriptor, the mapping under this range is more
+   *    fine-grained than @p leaf_level; in this case the function updates
+   *    protections for all reachable leaf mappings in the referenced subtree by
+   *    calling @ref protect_subtree (no error is reported if no mapping found).
+   *
+   * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
+   * @param p New protection/attribute flags to apply.
+   * @param leaf_level Level at which to enforce the update.
+   *
+   * @retval `xino::error_nr::ok` Success.
+   * @retval `xino::error_nr::invalid` A required entry was unmapped.
+   * @retval `xino::error_nr::nomem` Allocation of an intermediate table failed.
+   */
   [[nodiscard]] xino::error_t protect_one(const addr_t &a, xino::mm::prot p,
                                           unsigned leaf_level) noexcept {
-    pte_t *t{pt_root};
+    pte_t *t{root_va()};
 
-    for (unsigned level = 0; level < leaf_level; level++) {
-      const unsigned idx = index_for(a, level);
+    for (unsigned level{0}; level < leaf_level; level++) {
+      const unsigned idx{table_index_at_level(a, level)};
 
-      pte_t &entry = t[idx];
+      pte_t &entry{t[idx]};
 
       // If entry is not valid, unable to update permission.
       if (!entry_is_valid(entry))
         return xino::error_nr::invalid;
 
-      if (entry_is_block(entry)) {
-        // If entry is a block, allocate a table and break the block.
-        if (auto ret = split_block(block_base(a, level), entry, level);
-            ret != xino::error_nr::ok)
-          return ret;
-      }
+      // Allocate a table and break the block, if required.
+      if (auto ret{split_block(addr_at_level(a, level), entry, level)};
+          ret != xino::error_nr::ok)
+        return ret;
 
-      // After splitting, must be a table to continue (check only to be safe).
+      // Expect a table (after split_block()), check only to be safe.
       if (!entry_is_table(level, entry)) [[unlikely]]
         return xino::error_nr::invalid;
 
-      const xino::mm::phys_addr child = pte_encoder<Stage>::pte_to_phys(entry);
       // t is a page table.
-      t = xino::mm::va_layout::phys_to_virt(child).ptr<pte_t>();
+      t = pa_to_pte(pte_encoder<Stage>::pte_to_phys(entry));
     }
 
     // At leaf_level, t should be updated.
 
-    const unsigned idx = index_for(a, leaf_level);
-    // Make sure entry is not FAULT, and is a page or block.
-    if (!entry_is_valid(t[idx]) || entry_is_table(leaf_level, t[idx]))
+    const unsigned idx{table_index_at_level(a, leaf_level)};
+
+    // Make sure entry is not FAULT.
+    if (!entry_is_valid(t[idx]))
       return xino::error_nr::invalid;
 
-    // Extracts the physical address form PTE.
-    const xino::mm::phys_addr pa = pte_encoder<Stage>::pte_to_phys(t[idx]);
+    // pa for PTE, either a table or page/block,
+    const xino::mm::phys_addr pa{pte_encoder<Stage>::pte_to_phys(t[idx])};
 
-    const bool device = static_cast<bool>(p & xino::mm::prot::DEVICE);
-
-    const pte_t pte = (leaf_level + 1) < levels()
-                          ? pte_encoder<Stage>::make_leaf_block(pa, p, device)
-                          : pte_encoder<Stage>::make_leaf_page(pa, p, device);
-
-    write_pte_and_sync(kind::UPDATE, block_base(a, leaf_level),
-                       level_size(leaf_level), t[idx], pte);
+    // For a table, protect the subtree.
+    if (entry_is_table(leaf_level, t[idx])) {
+      // addr_at_level(...) is aligned address translated using a table at pa.
+      protect_subtree(addr_at_level(a, leaf_level), pa, leaf_level + 1, p);
+    } else {
+      // It is a page or block, update prot.
+      const pte_t pte{entry_at_level(pa, p, leaf_level)};
+      write_pte_and_sync(kind::UPDATE, addr_at_level(a, leaf_level),
+                         level_size(leaf_level), t[idx], pte);
+    }
 
     return xino::error_nr::ok;
   }
 
-  Allocator &allocator;
-  // PT root.
-  pte_t pt_root[entries_per_table()];
+  /**
+   * @brief Recursively free a page-table subtree and its page-table pages.
+   *
+   * Walks the translation-table subtree rooted at @p table_pa, clears every
+   * reachable entry to `PTE_TYPE_FAULT`, and frees all **page-table pages**
+   * belonging to the subtree (including the root page @p table_pa itself).
+   *
+   * @param table_pa Physical address of a translation table page.
+   * @param level Level of the table at @p table_pa.
+   */
+  void free_subtree(xino::mm::phys_addr table_pa, unsigned level) noexcept {
+    pte_t *t{pa_to_pte(table_pa)};
+
+    for (unsigned i{0}; i < entries_per_table(); i++) {
+      pte_t &entry{t[i]};
+
+      if (!entry_is_valid(entry))
+        continue;
+
+      // Free subtree.
+      if (entry_is_table(level, entry))
+        free_subtree(pte_encoder<Stage>::pte_to_phys(entry), level + 1);
+
+      entry = PTE_TYPE_FAULT;
+    }
+
+    allocator->free_pages(table_pa, 0);
+  }
+
+  /**
+   * @brief Recursively update protections for all mapped leaves in a subtree.
+   *
+   * Walks the translation-table subtree rooted at @p table_pa and updates the
+   * protection/attribute fields of every reachable **leaf** descriptor
+   * (block/page) to @p p, while preserving the mapped physical address.
+   *
+   * Entry @c i at descriptor level @p level covers the range
+   * `[a.addr + i * level_size(level), a.addr + (i + 1) * level_size(level))]`.
+   * Therefore, @p a must be aligned to `level_size(level)`, and this alignment
+   * is preserved for all recursive calls.
+   *
+   * @param a Start address (VA + ASID for stage-1, IPA for stage-2).
+   *          Must be aligned to `level_size(level)`
+   * @param table_pa Physical address of a translation table page.
+   * @param level Level of the table at @p table_pa.
+   * @param p New protection/attribute flags to apply.
+   */
+  void protect_subtree(const addr_t &a, xino::mm::phys_addr table_pa,
+                       unsigned level, xino::mm::prot p) noexcept {
+
+    pte_t *t{pa_to_pte(table_pa)};
+
+    // Size of each translation entry using a table at table_pa.
+    const std::size_t stride{level_size(level)};
+
+    for (unsigned i{0}; i < entries_per_table(); i++) {
+      pte_t &entry{t[i]};
+
+      if (!entry_is_valid(entry))
+        continue;
+
+      addr_t at{a};
+      // Stage-specific input address of this entry.
+      at.addr += (stride * i);
+
+      // pa for PTE, either a table or page/block,
+      const xino::mm::phys_addr pa{pte_encoder<Stage>::pte_to_phys(entry)};
+
+      if (entry_is_table(level, entry)) {
+        // at is aligned address translated using a table at pa.
+        protect_subtree(at, pa, level + 1, p);
+      } else {
+        // It is a page or block, update prot.
+        write_pte_and_sync(kind::UPDATE, at, stride, entry,
+                           entry_at_level(pa, p, level));
+      }
+    }
+  }
+
+  Allocator *allocator;
+  xino::mm::phys_addr root_pa;
 };
 
 } // namespace xino::mm::paging
