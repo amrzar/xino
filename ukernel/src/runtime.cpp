@@ -4,6 +4,7 @@
 #include <cstdlib> // for std::malloc and ste::free
 #include <mm_va_layout.hpp>
 #include <new>
+#include <runtime.hpp>
 
 namespace xino::runtime {
 
@@ -150,7 +151,7 @@ constinit bool use_mapping{};
  */
 extern "C" void *alloc_page(unsigned order) {
   xino::mm::phys_addr pa{
-      xino::allocator::boot_allocator.alloc_pages(xino::nothrow, order)};
+      xino::runtime::boot_allocator.alloc_pages(xino::nothrow, order)};
 
   if (pa == xino::mm::phys_addr{0})
     return NULL;
@@ -178,7 +179,7 @@ extern "C" void free_page(void *va, unsigned order) {
       xino::mm::va_layout::virt_to_phys(xino::mm::virt_addr{va}, use_mapping)};
 
   if (pa.has_value())
-    xino::allocator::boot_allocator.free_pages(pa.value(), order);
+    xino::runtime::boot_allocator.free_pages(pa.value(), order);
 }
 
 } // namespace xino::runtime

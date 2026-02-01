@@ -12,7 +12,7 @@
 #ifndef __MM_HPP__
 #define __MM_HPP__
 
-#include <compare>
+#include <compare> // for defaulted operator<=> support
 #include <cstddef>
 #include <cstdint>
 

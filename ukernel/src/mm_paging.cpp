@@ -242,23 +242,23 @@ void init_paging() noexcept {
 
   // Calculate intersection (unified_state):
   // Check if it is the first cpu running init_paging().
-  if (xino::cpu::state.pa_bits == 0U) {
-    xino::cpu::state.pa_bits = pa_bits;
-    xino::cpu::state.ipa_bits = ipa_bits;
-    xino::cpu::state.feat_vhe = true;
-    xino::cpu::state.mair_el2 = make_mair_el2();
-    xino::cpu::state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
-    xino::cpu::state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
+  if (xino::runtime::cpu_state.pa_bits == 0U) {
+    xino::runtime::cpu_state.pa_bits = pa_bits;
+    xino::runtime::cpu_state.ipa_bits = ipa_bits;
+    xino::runtime::cpu_state.feat_vhe = true;
+    xino::runtime::cpu_state.mair_el2 = make_mair_el2();
+    xino::runtime::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
+    xino::runtime::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
   } else {
-    if (pa_bits < xino::cpu::state.pa_bits) {
-      xino::cpu::state.pa_bits = pa_bits;
+    if (pa_bits < xino::runtime::cpu_state.pa_bits) {
+      xino::runtime::cpu_state.pa_bits = pa_bits;
 
-      if (ipa_bits < xino::cpu::state.ipa_bits)
-        xino::cpu::state.ipa_bits = ipa_bits;
+      if (ipa_bits < xino::runtime::cpu_state.ipa_bits)
+        xino::runtime::cpu_state.ipa_bits = ipa_bits;
 
       // Recalculate TCT_EL2 and VTCR_EL2.
-      xino::cpu::state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
-      xino::cpu::state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
+      xino::runtime::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
+      xino::runtime::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
     }
   }
 }
@@ -365,3 +365,5 @@ void invalidate_ipa_range(xino::mm::ipa_addr ipa, std::size_t size) noexcept {
 }
 
 } // namespace xino::mm::paging
+
+namespace xino::runtime {}

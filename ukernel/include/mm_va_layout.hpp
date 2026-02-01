@@ -32,11 +32,11 @@
 #ifndef __MM_VA_LAYOUT_HPP__
 #define __MM_VA_LAYOUT_HPP__
 
-#include <config.h> // UKERNEL_VA_BITS, UKERNEL_PAGE_*, UKERNEL_BASE, UKERNEL_*_SLOT_SIZE
+#include <config.h> // for UKERNEL_VA_BITS, UKERNEL_PAGE_*, UKERNEL_BASE, UKERNEL_*_SLOT_SIZE
+#include <cstddef>
 #include <cstdint>
-#include <mm.hpp> // phys_addr, virt_addr
-#include <optional>
-#include <type_traits>
+#include <mm.hpp>   // for phys_addr, virt_addr
+#include <optional> // for std::optional, std::nullopt
 
 namespace xino::mm::va_layout {
 

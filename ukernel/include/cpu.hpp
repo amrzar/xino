@@ -2,8 +2,8 @@
 #ifndef __CPU_HPP__
 #define __CPU_HPP__
 
-#include <mm.hpp>
-#include <regs.hpp>
+#include <mm.hpp>   // for virt_addr, ipa_addr
+#include <regs.hpp> // for xino::autogen::regs definitions
 
 namespace xino::cpu {
 
@@ -39,9 +39,6 @@ struct cpu_state {
   tcr_el2::reg_type tcr_el2;
   vtcr_el2::reg_type vtcr_el2;
 };
-
-// Shared CPU states.
-inline struct cpu_state state;
 
 /**
  * @brief Wait for event.

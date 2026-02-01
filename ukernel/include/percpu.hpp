@@ -79,15 +79,15 @@
 #ifndef __PERCPU_HPP__
 #define __PERCPU_HPP__
 
-#include <config.h> // UKERNEL_CACHE_LINE
-#include <cpu.hpp>
-#include <cstddef>
+#include <config.h> // for UKERNEL_CACHE_LINE
+#include <cpu.hpp>  // for tpidr_el2 register accessor
 #include <cstdint>
 #include <errno.hpp>
-#include <mm.hpp>
-#include <type_traits>
+#include <mm.hpp>      // for virt_addr
+#include <type_traits> // for std::is_trivially_{copyable,destructible}
 
 extern "C" {
+/* See linker.ldspp. */
 extern char __percpu_aligned_start[];
 extern char __percpu_start[];
 extern char __percpu_end[];

@@ -2,6 +2,7 @@
 #include <allocator.hpp>
 #include <config.h>
 #include <cpu.hpp>
+#include <runtime.hpp>
 
 namespace xino::allocator {
 
@@ -9,19 +10,6 @@ extern "C" {
 extern char __boot_heap_start[];
 extern char __boot_heap_end[];
 }
-
-/**
- * @brief Global buddy allocator used for early-boot allocations.
- *
- * This allocator services *physical* page allocations needed during the boot
- * stages (e.g., page-table pages, temporary boot buffers) before the main
- * allocator(s) are initialized.
- *
- * The allocator is configured and activated by @ref ukernel_boot_alloc_init(),
- * which binds it to the linker-reserved boot heap region
- * `[__boot_heap_start, __boot_heap_end)`.
- */
-constinit boot_allocator_t boot_allocator{};
 
 /**
  * @brief Initialize the uKernel boot-time allocator while the MMU is off.
@@ -45,8 +33,25 @@ extern "C" void ukernel_boot_alloc_init() noexcept {
   const xino::mm::phys_addr end{reinterpret_cast<av_t>(__boot_heap_end)};
   const std::size_t size = static_cast<std::size_t>(end - start);
 
-  if (boot_allocator.init(start, size) != xino::error_nr::ok)
+  if (xino::runtime::boot_allocator.init(start, size) != xino::error_nr::ok)
     xino::cpu::panic();
 }
 
 } // namespace xino::allocator
+
+namespace xino::runtime {
+
+/**
+ * @brief Global buddy allocator used for early-boot allocations.
+ *
+ * This allocator services *physical* page allocations needed during the boot
+ * stages (e.g., page-table pages, temporary boot buffers) before the main
+ * allocator(s) are initialized.
+ *
+ * The allocator is configured and activated by @ref ukernel_boot_alloc_init(),
+ * which binds it to the linker-reserved boot heap region
+ * `[__boot_heap_start, __boot_heap_end)`.
+ */
+constinit xino::allocator::buddy<boot_allocator_order> boot_allocator{};
+
+} // namespace xino::runtime

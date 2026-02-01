@@ -2,14 +2,13 @@
 #ifndef __MM_PAGING_HPP__
 #define __MM_PAGING_HPP__
 
-#include <allocator.hpp>
+#include <allocator.hpp> // for xino::nothrow tag for allocator-backed pages
 #include <cstddef>
 #include <cstdint>
 #include <errno.hpp>
-#include <mm.hpp> // phys_addr, virt_addr, ipa_addr, and prot
-#include <mm_va_layout.hpp>
-#include <runtime.hpp> // use_mapping
-#include <type_traits>
+#include <mm.hpp> // for phys_addr, virt_addr, ipa_addr, prot
+#include <mm_va_layout.hpp> // for granule_size(), granule_shift(), phys_to_virt(), va_bits()
+#include <runtime.hpp> // for cpu_state, use_mapping
 
 /**
  * @anchor chapter_d8
@@ -291,7 +290,8 @@ constexpr pte_t PTE_S2_AF{pte_t{1} << PTE_S2_AF_SHIFT};
 /* PTE ENCODERS. */
 
 inline pte_t pte_phys_field_mask() {
-  const std::uint64_t mask{(std::uint64_t{1} << xino::cpu::state.pa_bits) - 1};
+  const std::uint64_t mask{
+      (std::uint64_t{1} << xino::runtime::cpu_state.pa_bits) - 1};
   const std::uint64_t granule_mask{xino::mm::va_layout::granule_size() - 1};
   // e.g. 0x0000'FFFF'FFFF'F000UL for 4KB granule.
   return static_cast<pte_t>(mask & ~granule_mask);
@@ -763,7 +763,7 @@ private:
     if constexpr (Stage == stage::ST_1) {
       return xino::mm::va_layout::va_bits;
     } else { // Stage == stage::ST_2.
-      return xino::cpu::state.ipa_bits;
+      return xino::runtime::cpu_state.ipa_bits;
     }
   }
 

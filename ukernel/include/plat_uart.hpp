@@ -19,10 +19,10 @@
 #ifndef __PLAT_UART_HPP__
 #define __PLAT_UART_HPP__
 
-#include <config.h> // for UKERNEL_UART_DRIVER and UKERNEL_UART_BASE.
+#include <config.h> // for UKERNEL_UART_DRIVER
 #include <cstdint>
-#include <io.hpp> // for writel() and readl_relaxed().
-#include <mm.hpp> // for virt_addr.
+#include <io.hpp> // for readl_relaxed, writel_relaxed
+#include <mm.hpp> // for virt_addr
 
 namespace xino::plat::uart {
 

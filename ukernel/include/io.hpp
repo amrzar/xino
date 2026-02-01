@@ -27,9 +27,9 @@
 #ifndef __IO_HPP__
 #define __IO_HPP__
 
-#include <barrier.hpp> // for barrier(), iormb(), and iowmb().
-#include <mm.hpp>      // for virt_addr.
-#include <type_traits>
+#include <barrier.hpp> // for barrier(), iormb(), iowmb()
+#include <mm.hpp>      // for virt_addr
+#include <type_traits> // for std::is_integral_v, std::is_same_v
 
 namespace xino::io {
 // mmio_addr_t is virtual address typically after mapping tough appropriate API.

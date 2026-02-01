@@ -14,9 +14,8 @@
 #ifndef __SYNC_HPP__
 #define __SYNC_HPP__
 
-#include <cpu.hpp>
+#include <cpu.hpp> // for daif, daifset, wfe, sev, sevl
 #include <cstdint>
-#include <regs.hpp>
 
 namespace xino::sync {
 

@@ -32,8 +32,8 @@
 #include <cstdint>
 #include <errno.hpp>
 #include <limits>
-#include <mm.hpp>
-#include <mm_va_layout.hpp>
+#include <mm.hpp>           // for phys_addr and phys_addr_range()
+#include <mm_va_layout.hpp> // for granule_size()
 #include <stdexcept>
 
 namespace xino {
@@ -529,15 +529,6 @@ private:
     return 0;
   }
 };
-
-/* Boot buddy allocator. */
-
-constexpr std::size_t boot_allocator_max_order{
-    size_to_order(UKERNEL_BOOT_HEAP_SIZE)};
-
-using boot_allocator_t = xino::allocator::buddy<boot_allocator_max_order>;
-
-extern boot_allocator_t boot_allocator;
 
 } // namespace xino::allocator
 
