@@ -18,11 +18,6 @@
 
 namespace xino::mm {
 
-/* MM STATES. */
-
-/** @brief MMU state (ON: true, OFF: false). */
-inline bool mmu_on{false};
-
 /* ADDRESS TAGS. */
 
 /** @brief Tag for physical addresses. */
@@ -119,25 +114,31 @@ public:
     return static_cast<Derived &>(*this);
   }
 
-  // Return `a + off` (bytes).
+  // Return `a + off`.
   [[nodiscard]] friend constexpr Derived
   operator+(Derived a, std::uintptr_t off) noexcept {
     a += off;
     return a;
   }
 
-  // Return `off + a` (bytes).
+  // Return `off + a`.
   [[nodiscard]] friend constexpr Derived operator+(std::uintptr_t off,
                                                    Derived a) noexcept {
     a += off;
     return a;
   }
 
-  // Return `a - off` (bytes).
+  // Return `a - off`.
   [[nodiscard]] friend constexpr Derived
   operator-(Derived a, std::uintptr_t off) noexcept {
     a -= off;
     return a;
+  }
+
+  // Return `a - b`.
+  [[nodiscard]] friend constexpr std::ptrdiff_t
+  operator-(const Derived &a, const Derived &b) noexcept {
+    return static_cast<std::ptrdiff_t>(a.addr - b.addr);
   }
   ///@}
 
@@ -158,13 +159,13 @@ public:
 
 protected:
   /** @brief Construct a zero address. */
-  constexpr address_base() noexcept = default;
+  constexpr address_base() noexcept : addr{0} {};
 
   /** @brief Construct from raw integer value. */
   explicit constexpr address_base(value_type a) noexcept : addr{a} {}
 
   /** @brief Stored address value (bytes). */
-  value_type addr{};
+  value_type addr;
 };
 
 /** @name Address types aliases. */
@@ -217,6 +218,18 @@ public:
   explicit constexpr virt_addr(value_type a) noexcept
       : address_base<virt_addr, virt_tag>(a) {}
 
+  /** @brief Construct from an object pointer (non-const). */
+  explicit virt_addr(void const *ptr) noexcept
+      : address_base<virt_addr, virt_tag>(reinterpret_cast<value_type>(ptr)) {}
+
+  /** @brief Convert to an untyped pointer. */
+  explicit constexpr operator void *() noexcept { return ptr<void>(); }
+
+  /** @brief Convert to an untyped pointer (const-qualified). */
+  explicit constexpr operator const void *() const noexcept {
+    return ptr<const void>();
+  }
+
   /**
    * @brief View this virtual address as a typed pointer.
    *
@@ -225,7 +238,7 @@ public:
    * @tparam T Pointer type.
    * @return A pointer to `T` at this virtual address.
    */
-  template <class T> [[nodiscard]] constexpr T *ptr() noexcept {
+  template <typename T> [[nodiscard]] constexpr T *ptr() noexcept {
     return reinterpret_cast<T *>(addr);
   }
 
@@ -238,17 +251,17 @@ public:
    * @tparam T Pointer type.
    * @return A const pointer to `T` at this virtual address.
    */
-  template <class T> [[nodiscard]] constexpr const T *ptr() const noexcept {
+  template <typename T> [[nodiscard]] constexpr const T *ptr() const noexcept {
     return reinterpret_cast<const T *>(addr);
   }
 
   // See `ptr()` docs.
-  template <class T> [[nodiscard]] constexpr T &ref() noexcept {
+  template <typename T> [[nodiscard]] constexpr T &ref() noexcept {
     return *ptr<T>();
   }
 
   // See `ptr()` docs.
-  template <class T> [[nodiscard]] constexpr const T &ref() const noexcept {
+  template <typename T> [[nodiscard]] constexpr const T &ref() const noexcept {
     return *ptr<T>();
   }
 };
@@ -286,6 +299,8 @@ template <typename Addr> class address_iterator {
 public:
   using addr_t = Addr;
 
+  address_iterator() = delete;
+
   /**
    * @brief Construct an iterator at address @p a with stride @p s bytes.
    * @param a Current address.
@@ -309,8 +324,8 @@ public:
   }
 
 private:
-  addr_t cur{};
-  std::size_t step{};
+  addr_t cur;       // current address in the iterator.
+  std::size_t step; // Step to increment current address.
 };
 
 /**
@@ -341,6 +356,8 @@ public:
   using addr_t = Addr;
   using iterator = address_iterator<Addr>;
 
+  address_range() = delete;
+
   /**
    * @brief Construct a range `[first, last)` with stride @p s bytes.
    *
@@ -349,7 +366,7 @@ public:
    * @param s Stride in bytes.
    * @pre @p s must be non-zero.
    */
-  constexpr address_range(addr_t a, addr_t b, std::size_t s) noexcept
+  constexpr address_range(addr_t a, addr_t b, std::size_t s = 1) noexcept
       : first{a}, last{b}, step{s} {}
 
   // Begin iterator.
@@ -363,9 +380,9 @@ public:
   }
 
 private:
-  addr_t first{};
-  addr_t last{};
-  std::size_t step{};
+  addr_t first;     // First address in the range.
+  addr_t last;      // Last address in the range.
+  std::size_t step; // Step to iterate from start to last.
 };
 
 /* ADDRESS RANGE ALIASES. */
@@ -396,18 +413,19 @@ public:
   /** @name Bit flags. */
   ///@{
   static constexpr mask_t NONE{0x0};
-  static constexpr mask_t READ{0x1};    /**< Readable. */
-  static constexpr mask_t WRITE{0x2};   /**< Writable. */
-  static constexpr mask_t EXEC{0x4};    /**< Executable. */
-  static constexpr mask_t KERNEL{0x8};  /**< Kernel page.*/
-  static constexpr mask_t DEVICE{0x10}; /**< Device. */
-  static constexpr mask_t SHARED{0x20}; /**< Inner-Sharable page. */
-  static constexpr mask_t ALL_BITS{READ | WRITE | EXEC | KERNEL | DEVICE |
-                                   SHARED};
+  static constexpr mask_t READ{0x1};         /**< Readable. */
+  static constexpr mask_t WRITE{0x2};        /**< Writable. */
+  static constexpr mask_t EXECUTE{0x4};      /**< Executable. */
+  static constexpr mask_t KERNEL{0x8};       /**< Kernel page.*/
+  static constexpr mask_t DEVICE{0x10};      /**< Device. */
+  static constexpr mask_t SHARED{0x20};      /**< Inner-Sharable page. */
+  static constexpr mask_t RW{READ | WRITE};  /**< Readable and writable. */
+  static constexpr mask_t RWE{RW | EXECUTE}; /**< RW, and executable. */
+  static constexpr mask_t ALL_BITS{RWE | KERNEL | DEVICE | SHARED};
   ///@}
 
   /** @brief Construct with no flags set (i.e. NONE). */
-  constexpr prot() noexcept = default;
+  constexpr prot() noexcept : flags{NONE} {};
 
   /** @brief Construct with flags set (mask out unsupported flags). */
   constexpr prot(mask_t f) noexcept
@@ -431,7 +449,7 @@ public:
 
   // Bitwise NOT
   [[nodiscard]] constexpr prot operator~() const noexcept {
-    return prot{static_cast<mask_t>(~flags)};
+    return prot{static_cast<mask_t>((~flags) & ALL_BITS)};
   }
 
   // OR-assign
@@ -449,7 +467,7 @@ public:
 
 private:
   /** @brief Stored protection bits. */
-  mask_t flags{};
+  mask_t flags;
 };
 
 } // namespace xino::mm

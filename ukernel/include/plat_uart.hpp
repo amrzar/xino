@@ -40,7 +40,7 @@ namespace xino::plat::uart {
 class PL011 {
 private:
   /** @brief Active MMIO base; zero means "not initialized". */
-  inline static xino::mm::virt_addr uart_base{0};
+  inline static xino::mm::virt_addr uart_base{};
 
   [[nodiscard]] static xino::mm::virt_addr reg(std::uintptr_t off) noexcept {
     return uart_base + off;
@@ -89,7 +89,7 @@ public:
 class DW_APB {
 private:
   /** @brief Active MMIO base; zero means "not initialized". */
-  inline static xino::mm::virt_addr uart_base{0};
+  inline static xino::mm::virt_addr uart_base{};
 
   [[nodiscard]] static xino::mm::virt_addr reg(std::uintptr_t off) noexcept {
     return uart_base + off;

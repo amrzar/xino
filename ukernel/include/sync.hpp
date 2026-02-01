@@ -49,12 +49,19 @@ using irq_flags_t = xino::cpu::daif::reg_type;
  */
 class spin_lock {
 public:
-  constexpr spin_lock() noexcept = default;
+  /**
+   * @brief Construct an **unlocked** spin lock.
+   *
+   * Sets `state` to `0`. Marked `constexpr` so locks with static storage
+   * duration can be **constant-initialized** (and thus usable with `constinit`)
+   * without any runtime startup code.
+   */
+  constexpr spin_lock() noexcept : state{0} {}
 
-  // No copy.
+  // No copy (Also suppresses implicit move construction).
   spin_lock(const spin_lock &) = delete;
 
-  // No assignment.
+  // No assignment (Also suppresses implicit move assignment).
   spin_lock &operator=(const spin_lock &) = delete;
 
   /**
@@ -141,7 +148,7 @@ public:
   }
 
 private:
-  alignas(4) std::uint32_t state{};
+  alignas(4) std::uint32_t state;
 };
 
 } // namespace xino::sync
