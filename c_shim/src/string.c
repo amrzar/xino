@@ -39,3 +39,15 @@ void *memmove(void *dst, const void *src, size_t n) {
 int memcmp(const void *a, const void *b, size_t n) {
   return __builtin_memcmp(a, b, n);
 }
+
+#if defined(_POSIX_SOURCE) || defined(_POSIX_C_SOURCE) || defined(_GNU_SOURCE)
+size_t strnlen(const char *s, size_t maxlen) {
+  const char *ss = s;
+
+  while ((maxlen > 0) && *ss) {
+    ss++;
+    maxlen--;
+  }
+  return ss - s;
+}
+#endif

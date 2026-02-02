@@ -12,7 +12,6 @@
     .extern ukernel_apply_relocations
     .extern ukernel_va_layout_init
     .extern ukernel_boot_alloc_init
-    .extern uart_setup
 
 _start:
 
@@ -37,7 +36,6 @@ _start:
     bl      ukernel_apply_relocations
     bl      ukernel_va_layout_init
     bl      ukernel_boot_alloc_init
-    bl      uart_setup
     bl      ukernel_entry
 
     /* SHOULD NOTE GET HERE. */

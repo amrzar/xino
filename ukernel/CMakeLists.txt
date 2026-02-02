@@ -23,7 +23,7 @@ add_custom_command(
 add_custom_target(gen_ukernel_linker_script DEPENDS "${UKERNEL_LDS_OUT}")
 
 # Code-gen codes.
-set(UKERNEL_REGTOOL "${CMAKE_CURRENT_SOURCE_DIR}/../tools/xino_regtool.py")
+set(UKERNEL_REGTOOL "${CMAKE_CURRENT_SOURCE_DIR}/../py-tools/xino_regtool.py")
 
 set(UKERNEL_REG_HPP "${CMAKE_BINARY_DIR}/include/regs.hpp")
 

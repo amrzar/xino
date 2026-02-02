@@ -34,7 +34,7 @@ set_property(CACHE UKERNEL_PLATFORM PROPERTY STRINGS rock5b)
 
 # Platform == Rock 5B+
 if(UKERNEL_PLATFORM STREQUAL "rock5b")
-  set(UKERNEL_BASE "0xa00000UL" CACHE STRING "uKernel base")
+  set(UKERNEL_BASE "0xffffffffe0000000" CACHE STRING "uKernel base")
   set(UKERNEL_STACK_SIZE "0x4000" CACHE STRING
     "Stack size (16-byte aligned)") # 16 KB.
   #  -- Drivers --

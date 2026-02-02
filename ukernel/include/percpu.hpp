@@ -83,8 +83,8 @@
 #include <cpu.hpp>  // for tpidr_el2 register accessor
 #include <cstdint>
 #include <errno.hpp>
-#include <mm.hpp>      // for virt_addr
-#include <type_traits> // for std::is_trivially_{copyable,destructible}
+#include <mm.hpp> // for virt_addr
+#include <type_traits> // for std::is_trivially_copyable, std::is_trivially_destructible
 
 extern "C" {
 /* See linker.ldspp. */

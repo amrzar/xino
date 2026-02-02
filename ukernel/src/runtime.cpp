@@ -1,10 +1,12 @@
 
 #include <allocator.hpp> // xino::allocator::boot_allocator
-#include <cstdio>
 #include <cstdlib> // for std::malloc and ste::free
+#include <mm_paging.hpp>
 #include <mm_va_layout.hpp>
 #include <new>
 #include <runtime.hpp>
+
+void main();
 
 namespace xino::runtime {
 
@@ -44,14 +46,18 @@ static void deregister_eh_frames() {
     __deregister_frame(__eh_frame_start);
 }
 
-void main();
-
 extern "C" void ukernel_entry() {
   /* uKernel has been relocated, and the boot allocator is functional. */
 
+  /* -- Begin of Pre-C++ runtime boot -- */
+
+  while(1);
+
+  /* -- Begin of C++ runtime boot -- */
+
   register_eh_frames();
   run_init_array();
-  main();
+  ::main();
   run_fini_array();
   deregister_eh_frames();
 }
@@ -132,9 +138,6 @@ void operator delete[](void *ptr, std::size_t sz,
 
 namespace xino::runtime {
 
-/** @brief State of uKernel mapping: [true] established, [false]: identity. */
-constinit bool use_mapping{};
-
 /* malloc()-family allocator; see c_shim/src.malloc.c. */
 
 /**
@@ -143,7 +146,7 @@ constinit bool use_mapping{};
  * This is a C-ABI wrapper intended for a malloc()-family page allocator hook.
  * It requests `2^order` contiguous pages from the boot allocator and converts
  * the resulting physical address to a kernel virtual address using the current
- * global translation policy (`use_mapping`).
+ * global translation policy (`xino::mm::va_layout::va_layout_enabled`).
  *
  * @param order Allocation order in pages: allocates `2^order` contiguous pages.
  * @return Pointer to the base kernel virtual address of the allocation, or
@@ -156,7 +159,8 @@ extern "C" void *alloc_page(unsigned order) {
   if (pa == xino::mm::phys_addr{0})
     return NULL;
   // Get VA for the PA of the page allocated.
-  xino::mm::virt_addr va{xino::mm::va_layout::phys_to_virt(pa, use_mapping)};
+  xino::mm::virt_addr va{xino::mm::va_layout::phys_to_virt(
+      pa, xino::mm::va_layout::va_layout_enabled)};
 
   return static_cast<void *>(va);
 }
@@ -175,8 +179,8 @@ extern "C" void *alloc_page(unsigned order) {
  * @param order Allocation order originally used: frees `2^order` pages.
  */
 extern "C" void free_page(void *va, unsigned order) {
-  std::optional<xino::mm::phys_addr> pa{
-      xino::mm::va_layout::virt_to_phys(xino::mm::virt_addr{va}, use_mapping)};
+  std::optional<xino::mm::phys_addr> pa{xino::mm::va_layout::virt_to_phys(
+      xino::mm::virt_addr{va}, xino::mm::va_layout::va_layout_enabled)};
 
   if (pa.has_value())
     xino::runtime::boot_allocator.free_pages(pa.value(), order);

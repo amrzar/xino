@@ -32,8 +32,8 @@
 #include <cstdint>
 #include <errno.hpp>
 #include <limits>
-#include <mm.hpp>           // for phys_addr and phys_addr_range()
-#include <mm_va_layout.hpp> // for granule_size()
+#include <mm.hpp>           // for phys_addr and phys_addr_range
+#include <mm_va_layout.hpp> // for granule_size
 #include <stdexcept>
 
 namespace xino {

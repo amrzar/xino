@@ -30,6 +30,7 @@ target_compile_options(xino_build_flags INTERFACE
 
 # Sub-directories; should be before configure_file().
 add_subdirectory(c_shim)
+add_subdirectory(fdt)
 add_subdirectory(ukernel)
 
 configure_file(

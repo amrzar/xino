@@ -5,7 +5,7 @@
 namespace xino::mm::va_layout {
 
 // UKERNEL_BASE should be in `[ukimage_va, ukimage_end]`.
-// static_assert(ukimage_va <= ukernel_base && ukernel_base <= ukimage_end);
+static_assert(ukimage_va <= ukernel_base && ukernel_base <= ukimage_end);
 
 // UKERNEL_BASE must be aligned to the configured page granule.
 static_assert((UKERNEL_BASE & (granule_size() - 1)) == 0);
@@ -48,6 +48,34 @@ constinit xino::mm::phys_addr ukimage_pa_base{};
 constinit std::size_t ukimage_size{};
 
 /**
+ * @brief Runtime selector for VA-layout translation helpers.
+ *
+ * `va_layout_enabled == false` means "identity mode": treat addresses
+ * numerically (VA == PA). This is used during early boot while the MMU is off.
+ *
+ * `va_layout_enabled == true` means "layout mode": helpers interpret VAs using
+ * the uKernel VA layout (direct-map window and ukimage window).
+ *
+ * This flag is intentionally *passed by callers* (e.g.
+ * `phys_to_virt(pa, va_layout_enabled)`) rather than being read inside
+ * `phys_to_virt()` or `virt_to_phys()`. That preserves the zero-overhead
+ * fast path: calling `phys_to_virt(pa)` uses the default argument `true`,
+ * allowing the compiler to fold away the `if (!mmu_on)` branch and avoid a
+ * global load in hot code.
+ *
+ * Typical usage:
+ *  - After MMU is on and mappings are established:
+ *    `phys_to_virt(pa)` or `virt_to_phys(va)`
+ *  - Early boot or transitional:
+ *    `phys_to_virt(pa, va_layout_enabled)` or
+ *    `virt_to_phys(va, va_layout_enabled)`
+ *
+ * @note Written during MMU bring-up (single-writer) and then treated as
+ * read-only.
+ */
+constinit bool va_layout_enabled{};
+
+/**
  * @brief Initialize uKernel VA-layout runtime bases while the MMU is off.
  *
  * This routine finalizes the runtime parameters of the uKernel VA layout that
@@ -55,34 +83,44 @@ constinit std::size_t ukimage_size{};
  * and for building the initial page tables.
  *
  * Safety / invariants checked:
- *  - @p va is aligned to the configured page granule.
- *  - @p va lies within the reserved image slot `[ukimage_va, ukimage_end]`.
- *  - The image size fits in the remaining area starting at @p va.
+ *  (1) The physical load base is aligned to the configured page granule.
+ *  (2) @p va is aligned to the configured page granule.
+ *  (3) @p va lies within the reserved image slot `[ukimage_va, ukimage_end]`.
+ *  (4) The image size fits in the remaining area starting at @p va.
  *
  * @param va Requested runtime image VA base (for future KASLR support).
  *           Currently ignored; `UKERNEL_BASE` is used instead.
  */
 extern "C" void ukernel_va_layout_init(std::uintptr_t va) noexcept {
-
   // With MMU off, runtime address of __image_start == physical load address.
   ukimage_pa_base = xino::mm::phys_addr{
       reinterpret_cast<xino::mm::phys_addr::value_type>(__image_start)};
+
+  // (1).
+  // As we don't move the uKernel image, check if the image already loaded
+  // at address aligned to the configured page granule.
+  if (!ukimage_pa_base.is_align(granule_size()))
+    xino::cpu::panic();
+
   // uKernel range `[ukimage_va_base, ukimage_va_base + ukimage_size + 1]`.
   ukimage_va_base = xino::mm::virt_addr{UKERNEL_BASE};
   ukimage_size = static_cast<std::size_t>(__image_end - __image_start);
 
+  // (2).
   // KASLR base must be aligned to the configured page granule.
   if (!ukimage_va_base.is_align(granule_size()))
     xino::cpu::panic();
 
-  // // Check if `ukimage_va_base` in ukernel image slot.
-  // if (ukimage_va_base < ukimage_va || ukimage_va_base > ukimage_end)
-  //   xino::cpu::panic();
+  // (3).
+  // Check if `ukimage_va_base` in ukernel image slot.
+  if (ukimage_va_base < ukimage_va || ukimage_va_base > ukimage_end)
+    xino::cpu::panic();
 
-  // const std::ptrdiff_t avail{ukimage_end - ukimage_va_base + 1};
-  // // Check there is enough space in ukernel image slot.
-  // if (ukimage_size > avail)
-  //   xino::cpu::panic();
+  // (4).
+  const std::ptrdiff_t avail{ukimage_end - ukimage_va_base + 1};
+  // Check there is enough space in ukernel image slot.
+  if (ukimage_size > avail)
+    xino::cpu::panic();
 }
 
 } // namespace xino::mm::va_layout

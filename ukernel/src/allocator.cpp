@@ -1,8 +1,7 @@
 
 #include <allocator.hpp>
-#include <config.h>
-#include <cpu.hpp>
-#include <runtime.hpp>
+#include <cpu.hpp>     // for panic
+#include <runtime.hpp> // for boot_allocator_t
 
 namespace xino::allocator {
 
@@ -31,9 +30,9 @@ extern "C" void ukernel_boot_alloc_init() noexcept {
   // Boot heap `[start, end]`.
   const xino::mm::phys_addr start{reinterpret_cast<av_t>(__boot_heap_start)};
   const xino::mm::phys_addr end{reinterpret_cast<av_t>(__boot_heap_end)};
-  const std::size_t size = static_cast<std::size_t>(end - start);
 
-  if (xino::runtime::boot_allocator.init(start, size) != xino::error_nr::ok)
+  if (xino::runtime::boot_allocator.init(
+          start, static_cast<std::size_t>(end - start)) != xino::error_nr::ok)
     xino::cpu::panic();
 }
 
@@ -52,6 +51,6 @@ namespace xino::runtime {
  * which binds it to the linker-reserved boot heap region
  * `[__boot_heap_start, __boot_heap_end)`.
  */
-constinit xino::allocator::buddy<boot_allocator_order> boot_allocator{};
+constinit boot_allocator_t boot_allocator{};
 
 } // namespace xino::runtime

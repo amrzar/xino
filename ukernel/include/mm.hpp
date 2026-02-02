@@ -422,6 +422,9 @@ public:
   static constexpr mask_t RW{READ | WRITE};  /**< Readable and writable. */
   static constexpr mask_t RWE{RW | EXECUTE}; /**< RW, and executable. */
   static constexpr mask_t ALL_BITS{RWE | KERNEL | DEVICE | SHARED};
+  // Combined flags.
+  static constexpr mask_t KERNEL_RW{RW | KERNEL | SHARED};
+  static constexpr mask_t KERNEL_RWX{RWE | KERNEL | SHARED};
   ///@}
 
   /** @brief Construct with no flags set (i.e. NONE). */
