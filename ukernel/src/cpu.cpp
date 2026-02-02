@@ -3,6 +3,9 @@
 
 namespace xino::cpu {
 
+// Shared CPU states (CPU state intersection).
+constinit struct cpu_state cpu_state{};
+
 [[noreturn]] void panic() {
   for (;;)
     wfe();
@@ -11,10 +14,3 @@ namespace xino::cpu {
 }
 
 } // namespace xino::cpu
-
-namespace xino::runtime {
-
-// Shared CPU states (CPU state intersection).
-constinit struct xino::cpu::cpu_state cpu_state{};
-
-} // namespace xino::runtime

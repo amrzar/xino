@@ -38,6 +38,48 @@
 #include <mm.hpp>   // for phys_addr, virt_addr
 #include <optional> // for std::optional, std::nullopt
 
+/**
+ * -- DEFAULT MAPPING, UKERNEL_VA_BITS = 36 --
+ *
+ *  - ukernel_va_size = 0x0000_0010_0000_0000 (64 GB)
+ *  - ukernel_va_end = 0xFFFF_FFFF_FFFF_FFFF
+ *  - ukernel_va_start = 0xFFFF_FFF0_0000_0000
+ *
+ * uKernel image window
+ *  - ukimage_slot_size = 0x0000_0000_2000_0000 (512 MB)
+ *  - ukimage_end = 0xFFFF_FFFF_FFFF_FFFF
+ *  - ukimage_va = 0xFFFF_FFFF_E000_0000
+ *
+ * Device map window
+ *  - devmap_slot_size = 0x0000_0000_0400_0000 (64 MB)
+ *  - devmap_end = 0xFFFF_FFFF_DFFF_FFFF
+ *  - devmap_va = 0xFFFF_FFFF_DC00_0000
+ *
+ * Direct map window
+ *  - page_offset = 0xFFFF_FFF0_0000_0000
+ *  - page_end = 0xFFFF_FFFF_DBFF_FFFF
+ *
+ * -- DEFAULT MAPPING, UKERNEL_VA_BITS = 39 --
+ *
+ *  - ukernel_va_size = 0x0000_0080_0000_0000 (512 GB)
+ *  - ukernel_va_end = 0xFFFF_FFFF_FFFF_FFFF
+ *  - ukernel_va_start = 0xFFFF_FF80_0000_0000
+ *
+ * uKernel image window
+ *  - ukimage_slot_size = 0x0000_0000_2000_0000 (512 MB)
+ *  - ukimage_end = 0xFFFF_FFFF_FFFF_FFFF
+ *  - ukimage_va = 0xFFFF_FFFF_E000_0000
+ *
+ * Device map window
+ *  - devmap_slot_size = 0x0000_0000_0400_0000 (64 MB)
+ *  - devmap_end = 0xFFFF_FFFF_DFFF_FFFF
+ *  - devmap_va = 0xFFFF_FFFF_DC00_0000
+ *
+ * Direct map window
+ *  - page_offset = 0xFFFF_FF80_0000_0000
+ *  - page_end = 0xFFFF_FFFF_DBFF_FFFF
+ */
+
 namespace xino::mm::va_layout {
 
 /** @brief Log2 of the granule size of uKernel. */
@@ -179,6 +221,8 @@ virt_to_phys(xino::mm::virt_addr va, bool mmu_on = true) noexcept {
   // Devmap or unknown address.
   return std::nullopt;
 }
+
+extern bool va_layout_enabled;
 
 } // namespace xino::mm::va_layout
 

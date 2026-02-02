@@ -2,8 +2,9 @@
 #ifndef __CPU_HPP__
 #define __CPU_HPP__
 
+#include <cstdint>
 #include <mm.hpp>   // for virt_addr, ipa_addr
-#include <regs.hpp> // for xino::autogen::regs definitions
+#include <regs.hpp> // for xino::autogen::regs register descriptors
 
 namespace xino::cpu {
 
@@ -39,6 +40,8 @@ struct cpu_state {
   tcr_el2::reg_type tcr_el2;
   vtcr_el2::reg_type vtcr_el2;
 };
+
+extern struct cpu_state cpu_state;
 
 /**
  * @brief Wait for event.

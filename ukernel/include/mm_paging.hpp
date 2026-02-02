@@ -2,13 +2,14 @@
 #ifndef __MM_PAGING_HPP__
 #define __MM_PAGING_HPP__
 
-#include <allocator.hpp> // for xino::nothrow tag for allocator-backed pages
+#include <allocator.hpp>
+#include <barrier.hpp> // dmb, dsb, isb
+#include <cpu.hpp>     // for cpu_state
 #include <cstddef>
 #include <cstdint>
 #include <errno.hpp>
-#include <mm.hpp> // for phys_addr, virt_addr, ipa_addr, prot
-#include <mm_va_layout.hpp> // for granule_size(), granule_shift(), phys_to_virt(), va_bits()
-#include <runtime.hpp> // for cpu_state, use_mapping
+#include <mm.hpp>           // for phys_addr, virt_addr, ipa_addr, prot
+#include <mm_va_layout.hpp> // for granule_*, phys_to_virt, va_bit, va_layout_enabled
 
 /**
  * @anchor chapter_d8
@@ -290,8 +291,8 @@ constexpr pte_t PTE_S2_AF{pte_t{1} << PTE_S2_AF_SHIFT};
 /* PTE ENCODERS. */
 
 inline pte_t pte_phys_field_mask() {
-  const std::uint64_t mask{
-      (std::uint64_t{1} << xino::runtime::cpu_state.pa_bits) - 1};
+  const std::uint64_t mask{(std::uint64_t{1} << xino::cpu::cpu_state.pa_bits) -
+                           1};
   const std::uint64_t granule_mask{xino::mm::va_layout::granule_size() - 1};
   // e.g. 0x0000'FFFF'FFFF'F000UL for 4KB granule.
   return static_cast<pte_t>(mask & ~granule_mask);
@@ -498,9 +499,9 @@ template <> struct addr_for<stage::ST_2> {
  *    are possible, the caller must provide external synchronization.
  *
  * @tparam Stage Translation stage (stage::ST_1 or stage::ST_2).
- * @tparam Allocator Allocator type that provides page-table page allocation and
- *         freeing (e.g., `alloc_pages(nothrow, order)` / `free_pages(pa,
- * order)`).
+ * @tparam Allocator Allocator type that provides page-table page allocation
+ *         and freeing (e.g., `alloc_pages(nothrow, order)` /
+ *         `free_pages(pa, order)`).
  */
 template <stage Stage, typename Allocator> class page_table {
 public:
@@ -520,8 +521,8 @@ public:
    * @retval `xino::error_nr::ok` Root table allocated and initialized.
    * @retval `xino::error_nr::nomem` Allocation failed (root remains invalid).
    */
-  [[nodiscard]] xino::error_t init(Allocator a) noexcept {
-    // Check for double initlailize.
+  [[nodiscard]] xino::error_t init(Allocator &a) noexcept {
+    // Check for double initialize.
     if (allocator || root_pa != xino::mm::phys_addr{0})
       return xino::error_nr::invalid;
 
@@ -586,9 +587,9 @@ public:
     if (size == 0)
       return xino::error_nr::ok;
 
-    const std::size_t gs = xino::mm::va_layout::granule_size();
+    const std::size_t g = xino::mm::va_layout::granule_size();
     // At least `a` and `pa` should be page aligned.
-    if (!a.addr.is_align(gs) || !pa.is_align(gs))
+    if (!a.addr.is_align(g) || !pa.is_align(g))
       return xino::error_nr::invalid;
 
     // Check for overflow.
@@ -642,9 +643,8 @@ public:
     if (size == 0)
       return xino::error_nr::ok;
 
-    const std::size_t gs = xino::mm::va_layout::granule_size();
     // At least `a` should be page aligned.
-    if (!a.addr.is_align(gs))
+    if (!a.addr.is_align(xino::mm::va_layout::granule_size()))
       return xino::error_nr::invalid;
 
     // Check for overflow.
@@ -693,9 +693,8 @@ public:
     if (size == 0)
       return xino::error_nr::ok;
 
-    const std::size_t gs = xino::mm::va_layout::granule_size();
     // At least `a` should be page aligned.
-    if (!a.addr.is_align(gs))
+    if (!a.addr.is_align(xino::mm::va_layout::granule_size()))
       return xino::error_nr::invalid;
 
     // Check for overflow.
@@ -726,8 +725,8 @@ private:
   };
 
   [[nodiscard]] pte_t *pa_to_pte(xino::mm::phys_addr pa) noexcept {
-    xino::mm::virt_addr va{
-        xino::mm::va_layout::phys_to_virt(pa, xino::runtime::use_mapping)};
+    xino::mm::virt_addr va{xino::mm::va_layout::phys_to_virt(
+        pa, xino::mm::va_layout::va_layout_enabled)};
 
     return va.ptr<pte_t>();
   }
@@ -763,7 +762,7 @@ private:
     if constexpr (Stage == stage::ST_1) {
       return xino::mm::va_layout::va_bits;
     } else { // Stage == stage::ST_2.
-      return xino::runtime::cpu_state.ipa_bits;
+      return xino::cpu::cpu_state.ipa_bits;
     }
   }
 
@@ -936,7 +935,7 @@ private:
                           pte_t &slot, pte_t value) noexcept {
     using namespace xino::barrier;
 
-    if (!xino::runtime::use_mapping) [[unlikely]] {
+    if (!xino::mm::va_layout::va_layout_enabled) [[unlikely]] {
       // MMU is off, install descriptor.
       slot = value;
     } else {
@@ -1038,7 +1037,7 @@ private:
     const xino::mm::phys_addr pte_pa{pte_encoder<Stage>::pte_to_phys(entry)};
     const pte_t pte_attr{entry & pte_attr_field_mask()};
 
-    // Size of block for the next availabe level.
+    // Size of block for the next available level.
     const std::size_t sub_sz{level_size(level + 1)};
 
     for (unsigned i{0}; i < entries_per_table(); i++) {
@@ -1386,6 +1385,20 @@ private:
   Allocator *allocator;
   xino::mm::phys_addr root_pa;
 };
+
+/* PUBLIC API. */
+
+void init_paging() noexcept;
+
+/** @brief Install a TTBR0_EL2 value. */
+void install_user_ttbr(xino::mm::phys_addr ttbr0_pa,
+                       std::uint16_t asid) noexcept;
+
+/** @brief Install a TTBR1_EL2 value. */
+void install_kernel_ttbr(xino::mm::phys_addr ttbr1_pa,
+                         std::uint16_t asid) noexcept;
+
+void enable_mmu() noexcept;
 
 } // namespace xino::mm::paging
 

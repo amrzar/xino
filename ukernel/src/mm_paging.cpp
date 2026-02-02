@@ -5,6 +5,7 @@
 
 namespace xino::mm::paging {
 
+// Physical address capped to 48-bits.
 [[nodiscard]] static unsigned parange_bits() noexcept {
   switch (xino::cpu::id_aa64mmfr0_el1::read_pa_range()) {
   case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_32_bits:
@@ -242,23 +243,23 @@ void init_paging() noexcept {
 
   // Calculate intersection (unified_state):
   // Check if it is the first cpu running init_paging().
-  if (xino::runtime::cpu_state.pa_bits == 0U) {
-    xino::runtime::cpu_state.pa_bits = pa_bits;
-    xino::runtime::cpu_state.ipa_bits = ipa_bits;
-    xino::runtime::cpu_state.feat_vhe = true;
-    xino::runtime::cpu_state.mair_el2 = make_mair_el2();
-    xino::runtime::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
-    xino::runtime::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
+  if (xino::cpu::cpu_state.pa_bits == 0U) {
+    xino::cpu::cpu_state.pa_bits = pa_bits;
+    xino::cpu::cpu_state.ipa_bits = ipa_bits;
+    xino::cpu::cpu_state.feat_vhe = true;
+    xino::cpu::cpu_state.mair_el2 = make_mair_el2();
+    xino::cpu::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
+    xino::cpu::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
   } else {
-    if (pa_bits < xino::runtime::cpu_state.pa_bits) {
-      xino::runtime::cpu_state.pa_bits = pa_bits;
+    if (pa_bits < xino::cpu::cpu_state.pa_bits) {
+      xino::cpu::cpu_state.pa_bits = pa_bits;
 
-      if (ipa_bits < xino::runtime::cpu_state.ipa_bits)
-        xino::runtime::cpu_state.ipa_bits = ipa_bits;
+      if (ipa_bits < xino::cpu::cpu_state.ipa_bits)
+        xino::cpu::cpu_state.ipa_bits = ipa_bits;
 
       // Recalculate TCT_EL2 and VTCR_EL2.
-      xino::runtime::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
-      xino::runtime::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
+      xino::cpu::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
+      xino::cpu::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
     }
   }
 }
@@ -296,8 +297,6 @@ void install_kernel_ttbr(xino::mm::phys_addr ttbr1_pa,
                          std::uint16_t asid = 0) noexcept {
   install_ttbr<xino::cpu::ttbr1_el2>(ttbr1_pa, asid);
 }
-
-/* Boot. */
 
 void enable_mmu() noexcept {
   using xino::cpu::sctlr_el2;
@@ -365,5 +364,3 @@ void invalidate_ipa_range(xino::mm::ipa_addr ipa, std::size_t size) noexcept {
 }
 
 } // namespace xino::mm::paging
-
-namespace xino::runtime {}

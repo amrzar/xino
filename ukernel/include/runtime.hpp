@@ -2,21 +2,19 @@
 #ifndef __RUNTIME_HPP__
 #define __RUNTIME_HPP__
 
-#include <allocator.hpp> // for buddy and helpers
-#include <config.h>      // for UKERNEL_BOOT_HEAP_SIZE
-#include <cpu.hpp>       // for cpu_state
+#include <allocator.hpp>
+#include <config.h> // UKERNEL_BOOT_HEAP_SIZE
 #include <cstddef>
 
 namespace xino::runtime {
 
-extern bool use_mapping;
-
-extern struct xino::cpu::cpu_state cpu_state;
-
 constexpr std::size_t boot_allocator_order{
     xino::allocator::size_to_order(UKERNEL_BOOT_HEAP_SIZE)};
 
-extern xino::allocator::buddy<boot_allocator_order> boot_allocator;
+using boot_allocator_t = xino::allocator::buddy<boot_allocator_order>;
+
+// Defined in allocator.cpp.
+extern boot_allocator_t boot_allocator;
 
 } // namespace xino::runtime
 

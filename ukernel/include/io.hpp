@@ -27,7 +27,7 @@
 #ifndef __IO_HPP__
 #define __IO_HPP__
 
-#include <barrier.hpp> // for barrier(), iormb(), iowmb()
+#include <barrier.hpp> // for barrier, iormb, iowmb
 #include <mm.hpp>      // for virt_addr
 #include <type_traits> // for std::is_integral_v, std::is_same_v
 
