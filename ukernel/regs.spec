@@ -75,6 +75,14 @@
                   {"not_supported" : 0, "supported" : 1, "large_pa_52_bits" : 2}
             },
             {
+              "name" : "asid_bits",
+              "lsb" : 4,
+              "width" : 4,
+              "access" : "ro",
+              "description" : "Number of ASID bits.",
+              "enum_values" : {"asid_8_bit" : 0, "asid_16_bits" : 2}
+            },
+            {
               "name" : "pa_range",
               "lsb" : 0,
               "width" : 4,
@@ -112,20 +120,47 @@
               "access" : "ro",
               "description" : "Virtualization Host Extensions.",
               "enum_values" : {"not_supported" : 0, "supported" : 1}
+            },
+            {
+              "name" : "vmid_bits",
+              "lsb" : 4,
+              "width" : 4,
+              "access" : "ro",
+              "description" : "Number of VMID bits.",
+              "enum_values" : {"vmid_8_bit" : 0, "vmid_16_bits" : 2}
             }
           ]
         },
         {
           "encoding" : "ID_AA64MMFR2_EL1",
           "width" : 64,
-          "fields" : [ {
-            "name" : "st",
-            "lsb" : 28,
-            "width" : 4,
-            "access" : "ro",
-            "description" : "Support for small translation tables",
-            "enum_values" : {"not_supported" : 0, "supported" : 1}
-          } ]
+          "fields" : [
+            {
+              "name" : "st",
+              "lsb" : 28,
+              "width" : 4,
+              "access" : "ro",
+              "description" : "Support for small translation tables",
+              "enum_values" : {"not_supported" : 0, "supported" : 1}
+            },
+            {
+              "name" : "va_range",
+              "lsb" : 16,
+              "width" : 4,
+              "access" : "ro",
+              "description" : "Indicates support for a larger virtual address",
+              "enum_values" :
+                  {"va_48_bits" : 0, "va_52_bits_64K" : 1, "va_56_bits" : 2}
+            },
+            {
+              "name" : "cnp",
+              "lsb" : 0,
+              "width" : 4,
+              "access" : "ro",
+              "description" : "Support for Common not Private translations",
+              "enum_values" : {"not_supported" : 0, "supported" : 1}
+            }
+          ]
         },
         {
           "encoding" : "MAIR_EL2",

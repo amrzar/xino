@@ -4,7 +4,7 @@
 
 #include <allocator.hpp>
 #include <barrier.hpp> // dmb, dsb, isb
-#include <cpu.hpp>     // for cpu_state
+#include <cpu.hpp>     // for cpu_feats
 #include <cstddef>
 #include <cstdint>
 #include <errno.hpp>
@@ -177,10 +177,27 @@ constexpr bool pte_is_table_or_page(pte_t pte) noexcept {
  *
  * 63   59 58 51 50  48 47                      #m m-1 12 11             2 1 0
  * +------+-----+------+--------------------------+------+----------------+-+-+
- * | Attr | IGN | Res0 |    NLT address[47:m]     | RES0 |      IGN       |1|1|
+ * |    Attr    | Res0 |    NLT address[47:m]     | RES0 |      IGN       |1|1|
  * +------+-----+------+--------------------------+------+----------------+-+-+
  *   # With the 4KB granule size m is 12, with the 16KB granule size m is 14.
  *   # When m is 12, the RES0 field shown for bits[(m-1):12] is absent.
+ *
+ * Figure D8-13 Stage 1 next-level attribute fields in a VMSAv8-64 Table
+ * descriptor.
+ *
+ *  63 62 61 60 59 58      53 52 51
+ * +--+-----+--+--+----------+--+--+
+ * |  |     |  |  |   IGN    |  |  |
+ * +--+-----+--+--+----------+--+--+
+ *  ^  ^     ^  ^             ^  ^
+ *  |  |     |  |             |  IGN
+ *  |  |     |  |             Protected (IGN if !FEAT_THE and PnCH = 0)
+ *  |  |     |  PXNTable (Privileged Exec-Never) (IGN if HPD0/HPD1 = 1)
+ *  |  |     UXNTable/XNTable (Unprivileged Exec-Never) (IGN if HPD0/HPD1 = 1)
+ *  |  APTable (Hierarchical access-perm restriction) (IGN if HPD0/HPD1 = 1)
+ *  NSTable (Ign in non-secure state)
+ *
+ * For Stage 2, these bits are either Res0 or IGN.
  */
 
 /**
@@ -291,7 +308,7 @@ constexpr pte_t PTE_S2_AF{pte_t{1} << PTE_S2_AF_SHIFT};
 /* PTE ENCODERS. */
 
 inline pte_t pte_phys_field_mask() {
-  const std::uint64_t mask{(std::uint64_t{1} << xino::cpu::cpu_state.pa_bits) -
+  const std::uint64_t mask{(std::uint64_t{1} << xino::cpu::cpu_feats.pa_bits) -
                            1};
   const std::uint64_t granule_mask{xino::mm::va_layout::granule_size() - 1};
   // e.g. 0x0000'FFFF'FFFF'F000UL for 4KB granule.
@@ -762,7 +779,7 @@ private:
     if constexpr (Stage == stage::ST_1) {
       return xino::mm::va_layout::va_bits;
     } else { // Stage == stage::ST_2.
-      return xino::cpu::cpu_state.ipa_bits;
+      return xino::cpu::cpu_feats.ipa_bits;
     }
   }
 

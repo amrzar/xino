@@ -3,8 +3,8 @@
 
 namespace xino::cpu {
 
-// Shared CPU states (CPU state intersection).
-constinit struct cpu_state cpu_state{};
+// System-wide "safe" feature snapshot.
+constinit struct cpu_feats cpu_feats{};
 
 [[noreturn]] void panic() {
   for (;;)

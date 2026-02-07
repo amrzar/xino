@@ -30,18 +30,15 @@ using daifclr = R::DAIFClr;
 using tpidr_el2 = R::TPIDR_EL2;
 ///@}
 
-struct cpu_state {
+struct cpu_feats {
+  // Paging:
   unsigned pa_bits;
   unsigned ipa_bits;
-
-  bool feat_vhe;
-
-  mair_el2::reg_type mair_el2;
-  tcr_el2::reg_type tcr_el2;
-  vtcr_el2::reg_type vtcr_el2;
+  bool asid_16_bits;
+  bool vmid_16_bits;
 };
 
-extern struct cpu_state cpu_state;
+extern struct cpu_feats cpu_feats;
 
 /**
  * @brief Wait for event.

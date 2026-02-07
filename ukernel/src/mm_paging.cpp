@@ -5,29 +5,50 @@
 
 namespace xino::mm::paging {
 
-// Physical address capped to 48-bits.
 [[nodiscard]] static unsigned parange_bits() noexcept {
-  switch (xino::cpu::id_aa64mmfr0_el1::read_pa_range()) {
-  case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_32_bits:
+  using xino::cpu::id_aa64mmfr0_el1;
+  // Physical address capped to 48-bits.
+  switch (id_aa64mmfr0_el1::read_pa_range()) {
+  case id_aa64mmfr0_el1::pa_range::pa_32_bits:
     return 32;
-  case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_36_bits:
+  case id_aa64mmfr0_el1::pa_range::pa_36_bits:
     return 36;
-  case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_40_bits:
+  case id_aa64mmfr0_el1::pa_range::pa_40_bits:
     return 40;
-  case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_42_bits:
+  case id_aa64mmfr0_el1::pa_range::pa_42_bits:
     return 42;
-  case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_44_bits:
+  case id_aa64mmfr0_el1::pa_range::pa_44_bits:
     return 44;
-  case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_48_bits:
+  case id_aa64mmfr0_el1::pa_range::pa_48_bits:
     return 48;
-  // case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_52_bits:
-  // case xino::cpu::id_aa64mmfr0_el1::pa_range::pa_56_bits:
+  // case id_aa64mmfr0_el1::pa_range::pa_52_bits:
+  // case id_aa64mmfr0_el1::pa_range::pa_56_bits:
   default:
     return 48;
   }
 }
 
-// Use for TCR_EL2.IPS and VTCR_EL2.PS.
+[[nodiscard]] static bool asid_is_16bits() noexcept {
+  using xino::cpu::id_aa64mmfr0_el1;
+  // 8-bits vs. 16-bits ASID.
+  return id_aa64mmfr0_el1::read_asid_bits() ==
+         id_aa64mmfr0_el1::asid_bits::asid_16_bits;
+}
+
+[[nodiscard]] static bool vmid_is_16bits() noexcept {
+  using xino::cpu::id_aa64mmfr1_el1;
+  // 8-bits vs. 16-bits VMID.
+  return id_aa64mmfr1_el1::read_vmid_bits() ==
+         id_aa64mmfr1_el1::vmid_bits::vmid_16_bits;
+}
+
+/**
+ * @brief Encode a physical address size (PA bits) into the AArch64
+ *        `TCR_EL2.IPS` or `VTCR_EL2.PS` field value.
+ *
+ * @param bits Physical address size in bits (e.g., 32, 36, 40, 42, 44, 48).
+ * @return Unsigned 3-bit field value suitable for writing to IPS/PS.
+ */
 [[nodiscard]] static unsigned ps_for_bits(unsigned bits) noexcept {
   if (bits <= 32) {
     // xino::cpu::tcr_el2::ips::pa_32_bits;
@@ -217,11 +238,34 @@ make_vtcr_el2(unsigned pa_bits, unsigned ipa_bits) noexcept {
   return vtcr;
 }
 
-// This assume MMU is off.
+/**
+ * @brief Merge per-CPU paging capabilities into a system-wide "safe" snapshot.
+ *
+ * This function is invoked by every CPU during early boot to discover and
+ * consolidate MMU/translation-related properties needed to configure paging.
+ *
+ * The function performs:
+ *  - **Translation-granule validation** for the configured build granule
+ *    (`UKERNEL_PAGE_4K` or `UKERNEL_PAGE_16K`) for both stage-1 and stage-2
+ *    translation regimes. If unsupported, the CPU panics.
+ *  - **Physical address size discovery** via the CPU’s PARange.
+ *  - **IPA width computation** as:
+ *      @code
+ *      ipa_bits = min(va_bits, pa_bits)
+ *      @endcode
+ *    to constrain stage-2 addressability to what the kernel can represent and
+ *    what the CPU can back, avoiding unnecessary stage-2 depth/overhead.
+ *  - **System-wide safe merge** into `xino::cpu::cpu_feats`:
+ *      - `pa_bits` becomes the minimum PA width across all CPUs.
+ *      - `ipa_bits` becomes the minimum IPA width across all CPUs and is kept
+ *         consistent with the global PA width.
+ *      - `asid_16_bits` is true only if all CPUs support 16-bit ASIDs.
+ *      - `vmid_16_bits` is true only if all CPUs support 16-bit VMIDs.
+ *
+ * The resulting snapshot is used to configure translation control registers
+ * (e.g., TCR/VTCR) and to decide whether to use 8-bit or 16-bit ASIDs/VMIDs.
+ */
 void init_paging() noexcept {
-  if (xino::cpu::current_el::read_el() != 2)
-    xino::cpu::panic();
-
 #if defined(UKERNEL_PAGE_4K)
   if (!gran4_s1_supported() || !gran4_s2_supported())
     xino::cpu::panic();
@@ -230,36 +274,32 @@ void init_paging() noexcept {
     xino::cpu::panic();
 #endif
 
-  if (!xino::cpu::id_aa64mmfr1_el1::read_vh())
-    xino::cpu::panic();
-
-  const unsigned pa_bits = parange_bits(); // Currently clapped to 48.
-  const unsigned va_bits = xino::mm::va_layout::va_bits;
+  const unsigned pa_bits{parange_bits()}; // Currently clapped to 48.
+  const unsigned va_bits{xino::mm::va_layout::va_bits};
   // Limit IPA width to the intersection of what we can address (VA) and what
   // the CPU can back (PA). This keeps stage-2 from becoming deeper than stage-1
   // and avoids a needlessly large IPA space on systems with smaller PARange,
   // reducing stage-2 table overhead where possible.
-  const unsigned ipa_bits = va_bits < pa_bits ? va_bits : pa_bits;
+  const unsigned ipa_bits{va_bits < pa_bits ? va_bits : pa_bits};
 
-  // Calculate intersection (unified_state):
-  // Check if it is the first cpu running init_paging().
-  if (xino::cpu::cpu_state.pa_bits == 0U) {
-    xino::cpu::cpu_state.pa_bits = pa_bits;
-    xino::cpu::cpu_state.ipa_bits = ipa_bits;
-    xino::cpu::cpu_state.feat_vhe = true;
-    xino::cpu::cpu_state.mair_el2 = make_mair_el2();
-    xino::cpu::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
-    xino::cpu::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
+  // System-wide "safe" feature snapshot.
+  if (xino::cpu::cpu_feats.pa_bits == 0U) {
+    // It is the boot cpu, running init_paging().
+    xino::cpu::cpu_feats.pa_bits = pa_bits;
+    xino::cpu::cpu_feats.ipa_bits = ipa_bits;
+    xino::cpu::cpu_feats.asid_16_bits = asid_is_16bits();
+    xino::cpu::cpu_feats.vmid_16_bits = vmid_is_16bits();
   } else {
-    if (pa_bits < xino::cpu::cpu_state.pa_bits) {
-      xino::cpu::cpu_state.pa_bits = pa_bits;
+    // Use 16-bits ASID if all cpu support it; otherwise, 8-bit ASID.
+    xino::cpu::cpu_feats.asid_16_bits &= asid_is_16bits();
+    // Use 16-bits VMID if all cpu support it; otherwise, 8-bit VMID.
+    xino::cpu::cpu_feats.vmid_16_bits &= vmid_is_16bits();
 
-      if (ipa_bits < xino::cpu::cpu_state.ipa_bits)
-        xino::cpu::cpu_state.ipa_bits = ipa_bits;
+    if (pa_bits < xino::cpu::cpu_feats.pa_bits) {
+      xino::cpu::cpu_feats.pa_bits = pa_bits;
 
-      // Recalculate TCT_EL2 and VTCR_EL2.
-      xino::cpu::cpu_state.tcr_el2 = make_tcr_el2(pa_bits, va_bits);
-      xino::cpu::cpu_state.vtcr_el2 = make_vtcr_el2(pa_bits, ipa_bits);
+      if (ipa_bits < xino::cpu::cpu_feats.ipa_bits)
+        xino::cpu::cpu_feats.ipa_bits = ipa_bits;
     }
   }
 }
