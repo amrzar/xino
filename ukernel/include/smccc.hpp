@@ -193,7 +193,7 @@ enum class oen : fid_t {
 
 /* 5.1 Error codes. */
 
-using ret_t = std::int64_t;
+using smccc_ret_t = std::int64_t;
 
 /**
  * @brief Decode an SMCCC return value in X0 into a signed error/status code.
@@ -211,36 +211,44 @@ using ret_t = std::int64_t;
  * @param fid The SMCCC Function Identifier used for the call (used to determine
  *            whether the call is SMCCC32 or SMCCC64).
  * @param x0 The raw value read from register X0 after the call.
- * @return The decoded signed return code (0 for success, negative for errors).
+ * @return The decoded SMCCC return code (0 for success, negative for errors).
  */
-[[nodiscard]] inline ret_t retcode_from_x0(fid_t fid,
-                                           std::uint64_t x0) noexcept {
+[[nodiscard]] inline smccc_ret_t retcode_from_x0(fid_t fid,
+                                                 std::uint64_t x0) noexcept {
   if (fid_is_64(fid))
-    return static_cast<ret_t>(x0);
-
-  return static_cast<ret_t>(
+    return static_cast<smccc_ret_t>(x0);
+  return static_cast<smccc_ret_t>(
       static_cast<std::int32_t>(static_cast<std::uint32_t>(x0)));
 }
 
 } // namespace xino::smccc
 
-/* 7 Arm Architecture Calls. */
+/* 7 Arm Architecture Calls */
 
 namespace xino::smccc::arch {
+using namespace xino::smccc;
 
-/** @brief Standard SMCCC return codes for Arm Architecture service calls. */
-enum class ret : xino::smccc::ret_t {
-  // Table 7-1: Return code and values.
-  success = 0,        /**< Call completed successfully. */
-  not_supported = -1, /**< The call is not supported by the implementation. */
-  not_required = -2,  /**< The call is not required by the implementation. */
-  invalid_parameter =
-      -3 /**< One or more call parameters has a non-supported value. */
+constexpr fid_t arch_fn32(unsigned n) {
+  return make_fast_fid(call_conv::smccc32, oen::arch, n);
+}
+
+/* 7.2 SMCCC_VERSION. */
+constexpr fid_t SMCCC_VERSION{arch_fn32(0x0)};
+/* 7.3 SMCCC_ARCH_FEATURES. */
+constexpr fid_t SMCCC_ARCH_FEATURES{arch_fn32(0x1)};
+/* 7.4 SMCCC_ARCH_SOC_ID. */
+constexpr fid_t SMCCC_ARCH_SOC_ID{arch_fn32(0x2)};
+/* 7.8 SMCCC_ARCH_FEATURE_AVAILABILITY. */
+constexpr fid_t SMCCC_ARCH_FEATURE_AVAIL{arch_fn32(0x3)};
+
+enum : smccc_ret_t {
+  SUCCESS = 0,
+  NOT_SUPPORTED = -1,
+  NOT_REQUIRED = -2,
+  INVALID_PARAMETER = -3
 };
 
 /* 7.2 SMCCC_VERSION. */
-
-constexpr xino::smccc::fid_t SMCCC_VERSION{0x80000000};
 
 struct smccc_version {
   std::uint32_t major;
@@ -256,7 +264,7 @@ struct smccc_version {
  *   - bits[30:16] = Major version
  *   - bits[15:0]  = Minor version
  *   - bit[31] must be zero.
- * - If the implementation returns `ret::not_supported`, the caller must treat
+ * - If the implementation returns `NOT_SUPPORTED`, the caller must treat
  *   this as indicating firmware that implements **SMCCC v1.0**.
  *
  * @return SMCCC major/minor version.
@@ -266,25 +274,22 @@ struct smccc_version {
 
   in[0] = SMCCC_VERSION;
   // Get the version info.
-  xino::smccc::smccc_smc(&in, &out);
+  smccc_smc(&in, &out);
 
   // 7.2.3 Caller responsibilities.
   // NOT_SUPPORTED indicate presence of firmware that implements SMCCC v1.0.
-  if (xino::smccc::retcode_from_x0(SMCCC_VERSION, out[0]) ==
-      static_cast<xino::smccc::ret_t>(ret::not_supported)) {
+  if (retcode_from_x0(SMCCC_VERSION, out[0]) == NOT_SUPPORTED) {
     return smccc_version{1, 0};
   }
 
   // Bit[31] must be zero.
-  std::uint32_t ver{static_cast<std::uint32_t>(out[0]) & 0x7FFFFFFFU};
+  const std::uint32_t v{static_cast<std::uint32_t>(out[0]) & 0x7fffffffU};
   // Bits [30:16] Major version.
   // Bits [15:0] Minor version.
-  return smccc_version{(ver >> 16) & 0x7FFFU, ver & 0xFFFFU};
+  return smccc_version{(v >> 16) & 0x7fffU, v & 0xffffU};
 }
 
 /* 7.3 SMCCC_ARCH_FEATURES. */
-
-constexpr xino::smccc::fid_t SMCCC_ARCH_FEATURES{0x80000001};
 
 /**
  * @brief Query whether an Arm Architecture Service function is implemented.
@@ -294,31 +299,25 @@ constexpr xino::smccc::fid_t SMCCC_ARCH_FEATURES{0x80000001};
  *
  * @param arch_func_id The Arm Architecture Service FID to query.
  *
- * @retval `ret::success` indicates the function is supported.
- * @retval A negative error code (for example `ret::not_supported`) indicates
+ * @retval `SUCCESS` indicates the function is supported.
+ * @retval A negative error code (for example `NOT_SUPPORTED`) indicates
  *         the function is not supported (or the parameter is invalid).
  * @retval A positive error code indicates the function is supported and
- * provides feature flags specific to the function.
+ *         provides feature flags specific to the function.
  */
-[[nodiscard]] inline xino::smccc::ret_t
+[[nodiscard]] inline smccc_ret_t
 arch_features(std::uint32_t arch_func_id) noexcept {
   args in{}, out{};
 
   in[0] = SMCCC_ARCH_FEATURES;
   in[1] = arch_func_id;
   // Get the features info.
-  xino::smccc::smccc_smc(&in, &out);
+  smccc_smc(&in, &out);
 
-  // - <0 Function not implemented or not in Arm Architecture Service range.
-  // - Success Function implemented.
-  // - >0 Function implemented. Function capabilities are indicated using
-  //      feature flags specific to the function.
-  return xino::smccc::retcode_from_x0(SMCCC_ARCH_FEATURES, out[0]);
+  return retcode_from_x0(SMCCC_ARCH_FEATURES, out[0]);
 }
 
 /* 7.4 SMCCC_ARCH_SOC_ID. */
-
-constexpr xino::smccc::fid_t SMCCC_ARCH_SOC_ID{0x80000002};
 
 enum class soc_id_type : std::uint32_t { version = 0, revision = 1 };
 
@@ -333,23 +332,21 @@ enum class soc_id_type : std::uint32_t { version = 0, revision = 1 };
  * @return On success a non-negative SoC-ID value.
  *         On failure a negative SMCCC error code.
  */
-[[nodiscard]] inline xino::smccc::ret_t arch_soc_id(soc_id_type type) noexcept {
+[[nodiscard]] inline smccc_ret_t arch_soc_id(soc_id_type type) noexcept {
   args in{}, out{};
 
   in[0] = SMCCC_ARCH_SOC_ID;
   in[1] = static_cast<std::uint32_t>(type);
   // Get the soc_id info.
-  xino::smccc::smccc_smc(&in, &out);
+  smccc_smc(&in, &out);
 
-  return xino::smccc::retcode_from_x0(SMCCC_ARCH_SOC_ID, out[0]);
+  return retcode_from_x0(SMCCC_ARCH_SOC_ID, out[0]);
 }
 
 /* 7.8 SMCCC_ARCH_FEATURE_AVAILABILITY. */
 
-constexpr xino::smccc::fid_t SMCCC_ARCH_FEATURE_AVAIL{0x80000003};
-
 struct feat_avail_result {
-  xino::smccc::ret_t status;
+  smccc_ret_t status;
   std::uint64_t feat_bitmask;
 };
 
@@ -372,12 +369,11 @@ arch_feature_availability(std::uint64_t bitmask_selector) noexcept {
   in[0] = SMCCC_ARCH_FEATURE_AVAIL;
   in[1] = bitmask_selector;
   // Get the feature availability info.
-  xino::smccc::smccc_smc(&in, &out);
+  smccc_smc(&in, &out);
 
   feat_avail_result r{};
   r.status = retcode_from_x0(SMCCC_ARCH_FEATURE_AVAIL, out[0]);
-  r.feat_bitmask =
-      (r.status == static_cast<xino::smccc::ret_t>(ret::success)) ? out[1] : 0;
+  r.feat_bitmask = (r.status == SUCCESS) ? out[1] : 0;
   return r;
 }
 

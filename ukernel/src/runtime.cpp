@@ -1,6 +1,6 @@
 
 #include <allocator.hpp> // xino::allocator::boot_allocator
-#include <cstdlib> // for std::malloc and ste::free
+#include <cstdlib>       // for std::malloc and ste::free
 #include <mm_paging.hpp>
 #include <mm_va_layout.hpp>
 #include <new>
@@ -51,7 +51,8 @@ extern "C" void ukernel_entry() {
 
   /* -- Begin of Pre-C++ runtime boot -- */
 
-  while(1);
+  while (1)
+    ;
 
   /* -- Begin of C++ runtime boot -- */
 
@@ -138,7 +139,7 @@ void operator delete[](void *ptr, std::size_t sz,
 
 namespace xino::runtime {
 
-/* malloc()-family allocator; see c_shim/src.malloc.c. */
+/* malloc()-family allocator; see c_shim/src/malloc.c. */
 
 /**
  * @brief Allocate a physically-contiguous pages and return a kernel VA.
