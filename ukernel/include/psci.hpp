@@ -113,6 +113,21 @@ struct psci_version {
 constexpr std::uint32_t PSCI_FEATURES_CPU_SUSPEND_FORMAT_SHIFT{1}; // 1-bit.
 constexpr std::uint32_t PSCI_FEATURES_CPU_SUSPEND_MODE_SHIFT{0};   // 1-bit.
 
+/**
+ * @brief Query whether a PSCI function is implemented and features it supports.
+ *
+ * Issues the PSCI `PSCI_FEATURES` call (Function ID `0x8400000A`) via SMCCC
+ * to query support for the PSCI function identified by @p psci_func_id.
+ *
+ * @param psci_func_id The PSCI function identifier to query.
+ *
+ * @retval SUCCESS The function is supported; X0 also contains the feature
+ *         bitfield (possibly 0).
+ * @retval NOT_SUPPORTED The function is not implemented.
+ * @retval INVALID_PARAMETERS @p psci_func_id is not a valid identifier.
+ *
+ * @see Arm PSCI, DEN0022, sections 5.1.14 and 5.15.
+ */
 [[nodiscard]] inline smccc_ret_t features(std::uint32_t psci_func_id) noexcept {
   args in{}, out{};
 
@@ -121,21 +136,46 @@ constexpr std::uint32_t PSCI_FEATURES_CPU_SUSPEND_MODE_SHIFT{0};   // 1-bit.
   // Get the feature info.
   smccc_smc(&in, &out);
 
-  // 5.15.1 Intended use:
-  // NOT_SUPPORTED, if the function is not implemented.
-  // A set of feature flag bits.
   return retcode_from_x0(PSCI_1_0_FN_PSCI_FEATURES, out[0]);
 }
 
-/* 5.6 CPU_ON. */
-
-[[nodiscard]] inline smccc_ret_t cpu_on(std::uint64_t target_mpidr,
+/**
+ * @brief Power up a target CPU and start it at a physical entry point.
+ *
+ * Issues the PSCI `CPU_ON` call (Function ID `0xC4000003`) via SMCCC.
+ * If accepted, firmware powers up the CPU identified by @p target_cpu and,
+ * when that CPU first enters the return Non-secure Exception level, begins
+ * execution at @p entry_pa and supplies @p context_id in X0.
+ *
+ * The @p target_cpu argument is in **PSCI MPIDR affinity format**: it is a
+ * copy of the target CPU's MPIDR affinity fields (Aff0 .. Aff3) packed into
+ * the corresponding byte lanes, with all bits outside those affinity fields
+ * set to zero as required by PSCI.
+ *
+ * This call is asynchronous: a return of SUCCESS only means the request has
+ * been accepted/queued, not that the CPU is already executing.
+ *
+ * @param target_cpu Target CPU identifier in PSCI MPIDR affinity format.
+ * @param entry_pa Entry point address for the target CPU (physical).
+ * @param context_id Opaque value to present in X0 on target CPU first entry.
+ *
+ * @retval SUCCESS Request accepted.
+ * @retval INVALID_PARAMETERS @p target_cpu is invalid (and on PSCI < 1.0, may
+ *         also be used when @p entry_pa is invalid).
+ * @retval INVALID_ADDRESS @p entry_pa is invalid/not accessible to the caller.
+ * @retval ALREADY_ON Target CPU is already ON.
+ * @retval ON_PENDING A CPU_ON request for the target CPU is still pending.
+ * @retval INTERNAL_FAILURE The CPU cannot be powered up for physical reasons.
+ *
+ * @see Arm PSCI, DEN0022, sections 5.1.4 and 5.6.
+ */
+[[nodiscard]] inline smccc_ret_t cpu_on(std::uint64_t target_cpu,
                                         xino::mm::phys_addr entry_pa,
                                         std::uint64_t context_id) noexcept {
   args in{}, out{};
 
   in[0] = PSCI_0_2_FN64_CPU_ON;
-  in[1] = target_mpidr;
+  in[1] = target_cpu;
   in[2] = static_cast<xino::mm::phys_addr::value_type>(entry_pa);
   in[3] = context_id;
   // Boot a CPU at entry_pa.
@@ -144,8 +184,20 @@ constexpr std::uint32_t PSCI_FEATURES_CPU_SUSPEND_MODE_SHIFT{0};   // 1-bit.
   return retcode_from_x0(PSCI_0_2_FN64_CPU_ON, out[0]);
 }
 
-/* 5.5 CPU_OFF. */
-
+/**
+ * @brief Power down the calling CPU.
+ *
+ * Issues the PSCI `CPU_OFF` call (Function ID `0x84000002`) via SMCCC to
+ * request that the calling CPU be powered down and enter the OFF state.
+ *
+ * On successful completion, the calling CPU is powered down and this function
+ * **does not return**. If it returns, an error occurred.
+ *
+ * @retval SUCCESS Never returned (CPU is powered down).
+ * @retval DENIED The calling CPU cannot be powered down in its current state.
+ *
+ * @see Arm PSCI, DEN0022, section 5.1.3 and 5.5.
+ */
 [[nodiscard]] inline smccc_ret_t cpu_off() noexcept {
   args in{}, out{};
 
@@ -155,12 +207,6 @@ constexpr std::uint32_t PSCI_FEATURES_CPU_SUSPEND_MODE_SHIFT{0};   // 1-bit.
 
   return retcode_from_x0(PSCI_0_2_FN_CPU_OFF, out[0]);
 }
-
-/* 5.4 CPU_SUSPEND. */
-
-[[nodiscard]] inline smccc_ret_t
-cpu_suspend(std::uint32_t power_state, xino::mm::phys_addr entry_pa,
-            std::uint64_t context_id) noexcept {}
 
 } // namespace xino::fw::psci
 

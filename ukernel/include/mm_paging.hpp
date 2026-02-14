@@ -1407,6 +1407,12 @@ private:
 
 void init_paging() noexcept;
 
+[[nodiscard]] xino::cpu::mair_el2::reg_type make_mair_el2() noexcept;
+
+[[nodiscard]] xino::cpu::tcr_el2::reg_type make_tcr_el2(unsigned pa_bits, unsigned va_bits) noexcept;
+
+[[nodiscard]] xino::cpu::vtcr_el2::reg_type make_vtcr_el2(unsigned pa_bits, unsigned ipa_bits) noexcept;
+
 /** @brief Install a TTBR0_EL2 value. */
 void install_user_ttbr(xino::mm::phys_addr ttbr0_pa,
                        std::uint16_t asid) noexcept;

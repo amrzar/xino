@@ -182,7 +182,7 @@ vtcr_sl0(unsigned ipa_bits) noexcept {
 }
 
 // D24.2.122 MAIR_EL2, Memory Attribute Indirection Register.
-[[nodiscard]] static xino::cpu::mair_el2::reg_type make_mair_el2() noexcept {
+[[nodiscard]] xino::cpu::mair_el2::reg_type make_mair_el2() noexcept {
   using xino::cpu::mair_el2;
 
   mair_el2::reg_type attr_normal = 0xffU; // Attr0.
@@ -193,7 +193,7 @@ vtcr_sl0(unsigned ipa_bits) noexcept {
 }
 
 // D24.2.183 TCR_EL2, Translation Control Register, When ELIsInHost.
-[[nodiscard]] static xino::cpu::tcr_el2::reg_type
+[[nodiscard]] xino::cpu::tcr_el2::reg_type
 make_tcr_el2(unsigned pa_bits, unsigned va_bits) noexcept {
   using xino::cpu::tcr_el2;
 
@@ -219,7 +219,7 @@ make_tcr_el2(unsigned pa_bits, unsigned va_bits) noexcept {
 }
 
 // D24.2.210 VTCR_EL2, Virtualization Translation Control Register.
-[[nodiscard]] static xino::cpu::vtcr_el2::reg_type
+[[nodiscard]] xino::cpu::vtcr_el2::reg_type
 make_vtcr_el2(unsigned pa_bits, unsigned ipa_bits) noexcept {
   using xino::cpu::vtcr_el2;
 
