@@ -102,7 +102,7 @@ extern "C" void ukernel_va_layout_init(std::uintptr_t va) noexcept {
   if (!ukimage_pa_base.is_align(granule_size()))
     xino::cpu::panic();
 
-  // uKernel range `[ukimage_va_base, ukimage_va_base + ukimage_size + 1]`.
+  // uKernel range `[ukimage_va_base, ukimage_va_base + ukimage_size)`.
   ukimage_va_base = xino::mm::virt_addr{UKERNEL_BASE};
   ukimage_size = static_cast<std::size_t>(__image_end - __image_start);
 

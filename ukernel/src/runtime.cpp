@@ -1,6 +1,9 @@
 
 #include <allocator.hpp> // xino::allocator::boot_allocator
-#include <cstdlib>       // for std::malloc and ste::free
+#include <barrier.hpp>
+#include <cpu.hpp>
+#include <cstdint> // for std::uint16_t
+#include <cstdlib> // for std::malloc and ste::free
 #include <mm_paging.hpp>
 #include <mm_va_layout.hpp>
 #include <new>
@@ -46,13 +49,109 @@ static void deregister_eh_frames() {
     __deregister_frame(__eh_frame_start);
 }
 
+namespace {
+
+// Temporary identity mapping.
+constinit ukernel_pt_t identity_pt{};
+// uKernel mapping (direct + ukimage).
+constinit ukernel_pt_t ukernel_pt{};
+constexpr std::uint16_t ukernel_asid{0};
+
+static xino::error_t setup_identity_mapping() {
+  xino::error_t err{xino::error_nr::ok};
+
+  err = identity_pt.init(boot_allocator);
+  if (err != xino::error_nr::ok)
+    return err;
+
+  ukernel_pt_t::addr_t ident_va_range{};
+  ident_va_range.addr =
+      xino::mm::virt_addr{static_cast<xino::mm::phys_addr::value_type>(
+          xino::mm::va_layout::ukimage_pa_base)};
+  ident_va_range.asid = ukernel_asid;
+  // Identity map the ukernel range:
+  // `[ukimage_pa_base, ukimage_pa_base + ukimage_size)`.
+  err = identity_pt.map_range(
+      ident_va_range, xino::mm::va_layout::ukimage_pa_base,
+      xino::mm::va_layout::ukimage_size, xino::mm::prot{mm::prot::KERNEL_RWX});
+  if (err != xino::error_nr::ok) {
+    // `map_range()` is not atomic.
+    identity_pt.deinit();
+
+    return err;
+  }
+
+  xino::mm::paging::install_user_ttbr(identity_pt.root(), ukernel_asid);
+
+  return xino::error_nr::ok;
+}
+
+static xino::error_t setup_ukernel_mapping() {
+  xino::error_t err{xino::error_nr::ok};
+
+  err = ukernel_pt.init(boot_allocator);
+  if (err != xino::error_nr::ok)
+    return err;
+
+  ukernel_pt_t::addr_t direct_va_range{};
+  direct_va_range.addr = xino::mm::va_layout::page_offset;
+  direct_va_range.asid = ukernel_asid;
+  // Map `[page_offset, page_end]` to
+  //     `[0x0, page_end - page_offset]`.
+  // For instance `[0x1000, 0x1fff]` is mapped to `[0x0, 0xfff]` calling
+  //   `ukernel_pt.map_range(0x1000, 0x0, 0xfff + 1, ...)`.
+  err = ukernel_pt.map_range(direct_va_range, mm::phys_addr{0},
+                             xino::mm::va_layout::page_end -
+                                 xino::mm::va_layout::page_offset + 1,
+                             xino::mm::prot{mm::prot::KERNEL_RW});
+  if (err != xino::error_nr::ok) {
+    // `map_range()` is not atomic.
+    ukernel_pt.deinit();
+
+    return err;
+  }
+
+  ukernel_pt_t::addr_t image{};
+  image.addr = xino::mm::va_layout::ukimage_va_base;
+  image.asid = ukernel_asid;
+  // Map `[ukimage_va_base, ukimage_va_base + ukimage_size)` to
+  //     `[ukimage_pa_base, ukimage_pa_base + ukimage_size)`.
+  err = ukernel_pt.map_range(image, xino::mm::va_layout::ukimage_pa_base,
+                             xino::mm::va_layout::ukimage_size,
+                             xino::mm::prot{mm::prot::KERNEL_RWX});
+  if (err != xino::error_nr::ok) {
+    // `map_range()` is not atomic.
+    ukernel_pt.deinit();
+
+    return err;
+  }
+
+  xino::mm::paging::install_kernel_ttbr(ukernel_pt.root(), ukernel_asid);
+
+  return xino::error_nr::ok;
+}
+
+} // namespace
+
 extern "C" void ukernel_entry() {
   /* uKernel has been relocated, and the boot allocator is functional. */
 
   /* -- Begin of Pre-C++ runtime boot -- */
 
-  while (1)
-    ;
+  xino::mm::paging::init_paging();
+
+  cpu::mair_el2::write(xino::mm::paging::make_mair_el2());
+  cpu::tcr_el2::write(xino::mm::paging::make_tcr_el2(
+      xino::cpu::cpu_feats.pa_bits, xino::mm::va_layout::va_bits));
+
+  setup_identity_mapping();
+  setup_ukernel_mapping();
+
+  mm::va_layout::va_layout_enabled = true;
+
+  barrier::isb();
+  mm::paging::enable_mmu();
+  barrier::isb();
 
   /* -- Begin of C++ runtime boot -- */
 
