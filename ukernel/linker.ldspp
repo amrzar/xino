@@ -1,4 +1,18 @@
 
+/**
+ * @file linker.ldspp
+ * @brief Layout and symbol-visibility contract for the uKernel image.
+ *
+ * Motivation for the pervasive `HIDDEN(...)` assignments:
+ *
+ *  - Early boot (start.S, reloc.c, percpu.cpp, boot allocator) runs with the
+ *    MMU disabled; addresses must be materialized via PC-relative sequences.
+ *  - Hidden symbols are non-preemptible, so the linker is forced to generate
+ *    direct references instead of GOT/PLT indirections.
+ *  - Only symbols consumed after paging is enabled (e.g., EH tables, fini
+ *    arrays, GOT) remain visible to aid diagnostics and tooling.
+ */
+
 #include <config.h>
 
 OUTPUT_ARCH(aarch64)
@@ -8,22 +22,21 @@ SECTIONS
 {
   . = 0;
 
-  /* See mm_va_layout.cpp. */
   HIDDEN(__image_start = .);
 
   .text : ALIGN(16) {
-    __text_start = .;
+    HIDDEN(__text_start = .);
     KEEP(*(.text.start))
     *(.text .text.*)
-    __text_end = .;
+    HIDDEN(__text_end = .);
   }
 
   . = ALIGN(UKERNEL_PAGE_SIZE);
 
   .rodata : ALIGN(16) {
-    __rodata_start = .;
+    HIDDEN(__rodata_start = .);
     *(.rodata .rodata.*)
-    __rodata_end = .;
+    HIDDEN(__rodata_end = .);
   }
 
   /* Exception handling and unwinding info. */
@@ -49,9 +62,9 @@ SECTIONS
 
   /* C++ static initialization arrays. */
   .init_array : ALIGN(8) {
-    __init_array_start = .;
+    HIDDEN(__init_array_start = .);
     KEEP(*(.init_array .init_array.*))
-    __init_array_end = .;
+    HIDDEN(__init_array_end = .);
   }
 
   .fini_array : ALIGN(8) {
@@ -75,29 +88,29 @@ SECTIONS
   /* START DATA (RW). */
 
   .data : ALIGN(16) {
-    __data_start = .;
+    HIDDEN(__data_start = .);
     *(.data .data.*)
-    __data_end = .;
+    HIDDEN(__data_end = .);
   }
 
   .percpu : ALIGN(UKERNEL_CACHE_LINE) {
-    __percpu_aligned_start = .;
+    HIDDEN(__percpu_aligned_start = .);
     KEEP(*(.percpu_aligned .percpu_aligned.*))
-    __percpu_start = .;
+    HIDDEN(__percpu_start = .);
     KEEP(*(.percpu .percpu.*))
     . = ALIGN(UKERNEL_CACHE_LINE);
-    __percpu_end = .;
+    HIDDEN(__percpu_end = .);
   }
 
   .bss (NOLOAD) : ALIGN(16) {
-    __bss_start = .;
+    HIDDEN(__bss_start = .);
     /* Keep initial stack in .bss. */
-    __stack_bottom = .;
+    HIDDEN(__stack_bottom = .);
     . += UKERNEL_STACK_SIZE;
-    __stack_top = .;
+    HIDDEN(__stack_top = .);
     *(.bss .bss.*)
     *(COMMON)
-    __bss_end = .;
+    HIDDEN(__bss_end = .);
   }
 
   .boot_heap (NOLOAD) : ALIGN(UKERNEL_PAGE_SIZE) {
@@ -145,5 +158,4 @@ SECTIONS
     *(.dynsym) *(.dynstr)
     *(.hash) *(.gnu.hash)
   }
-
 }
