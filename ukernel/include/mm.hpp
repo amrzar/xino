@@ -7,7 +7,7 @@
  *  - Minimal strided address ranges for `range-for` iteration.
  *  - An abstract protection bitmask (`xino::mm::prot`).
  *
- * ## Early-boot considerations
+ * @section mm_early_boot Early-boot considerations
  *
  * The uKernel may execute code very early (including PIE self-relocation)
  * before any C++ dynamic initialization (`.init_array`) has run. The types in
@@ -16,7 +16,7 @@
  *  - Address wrappers are thin `uintptr_t`-backed value types; operations are
  *    `constexpr` and `noexcept` and compile down to integer arithmetic.
  *
- * ### Static storage initialization and `constinit`
+ * @subsection mm_static_init Static storage initialization and `constinit`
  *
  * For objects with **static storage duration** (globals / namespace-scope
  * `static` / static data members), C++ initialization can become **dynamic
@@ -27,14 +27,14 @@
  * `.init_array`, because it **enforces** constant initialization and turns
  * accidental dynamic initialization into a compile-time error.
  *
- * ### Automatic variables and parameters
+ * @subsection mm_auto_vars Automatic variables and parameters
  *
  * For **automatic (stack) variables** and **parameters**, there is no
  * `.init_array` concern: construction happens at the point of execution. These
  * address wrappers are safe to use in early boot as locals/parameters because
  * they are simple integer wrappers and do not depend on runtime services.
  *
- * ### `virt_addr` pointer constructor caveat
+ * @subsection mm_virt_ctor_caveat `virt_addr` pointer constructor caveat
  *
  * `virt_addr` provides a convenience constructor from `void const*` that is
  * intentionally **not `constexpr`**. Therefore it cannot be used for constant
@@ -47,7 +47,7 @@
  * xino::mm::virt_addr gv{&obj};
  * @endcode
  *
- * ### Rule of thumb (boot-safe usage)
+ * @subsection mm_boot_rule Rule of thumb (boot-safe usage)
  *
  *  - **Locals/parameters:** fine to construct/copy/compare these types freely.
  *  - **Globals/statics that may be touched before `.init_array`:**

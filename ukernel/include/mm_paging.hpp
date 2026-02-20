@@ -1088,7 +1088,7 @@ private:
    * address @p a to physical address @p pa with protections @p p, at the
    * mapping granularity implied by @p leaf_level (`level_size(leaf_level)`).
    *
-   * ## Design
+   * @section map_one_design Design
    *
    * The function walks the translation-table hierarchy from the root down to
    * the parent of @p leaf_level:
@@ -1164,7 +1164,7 @@ private:
    *  - a table descriptor, in which case the entire child subtree is detached
    *    and all page-table pages in that subtree are freed.
    *
-   * ## Design
+   * @section unmap_one_design Design
    *
    * The function walks the translation-table hierarchy from the root down to
    * the parent of @p leaf_level:
@@ -1245,7 +1245,7 @@ private:
    * address @p a at the mapping granularity implied by @p leaf_level
    * (`level_size(leaf_level)`).
    *
-   * ## Design
+   * @section protect_one_design Design
    *
    * The function walks the translation-table hierarchy from the root down to
    * the parent of @p leaf_level:

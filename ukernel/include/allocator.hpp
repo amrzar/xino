@@ -21,10 +21,10 @@
  *  - It performs all initialization explicitly in @ref buddy::init(), rather
  *    than relying on non-trivial constructors or member initializers.
  *
- * ## Lifetime and ownership model
+ * @section allocator_lifetime_model Lifetime and ownership model
  *
- *  - The allocator owns only its **metadata/ bookkeeping** (free/split bitmaps
- *    and pool state); it does **not** own the physical pages themselves.
+ *  - The allocator owns only its **metadata and bookkeeping** (free/split
+ *    bitmaps and pool state); it does not own the physical pages themselves.
  *  - There is intentionally no `deinit()` operation: destroying or discarding
  *    the allocator object (or its metadata) does **not** affect pages that were
  *    previously handed out.

@@ -11,7 +11,7 @@
  * this_cpu_ptr = TPIDR_EL2 + (symbol_addr - __percpu_aligned_start)
  * @endcode
  *
- * ## Declaring per-CPU variables
+ * @section percpu_declaring Declaring per-CPU variables
  *
  * Standard C++ has no notion of custom linker sections, therefore per-CPU
  * variables must still be placed into the linker-collected input sections using
@@ -53,7 +53,7 @@
  * }
  * @endcode
  *
- * ## Boot flow
+ * @section percpu_boot_flow Boot flow
  *
  * 1. Early boot (single CPU, before per-CPU replication):
  *    call `percpu_bootstrap_init()` to set TPIDR_EL2 to the template base.
@@ -63,7 +63,7 @@
  * 3. During secondary CPU bring-up:
  *    call `percpu_cpu_online(cpu_idx)` on each CPU to set its TPIDR_EL2 base.
  *
- * ## Design note
+ * @section percpu_design_note Design note
  *
  * Some C++ kernels build per-CPU state by allocating a per-CPU area and then
  * running per-CPU constructors during CPU bring-up.
