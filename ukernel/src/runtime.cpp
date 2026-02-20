@@ -39,6 +39,13 @@ extern char __eh_frame_start[], __eh_frame_end[];
 extern "C" void __register_frame(void *) __attribute__((weak));
 extern "C" void __deregister_frame(void *) __attribute__((weak));
 
+extern "C" {
+extern char __image_start[];
+extern char __rodata_start[];
+extern char __data_start[];
+extern char __rela_dyn_start[], __rela_dyn_end[];
+}
+
 static void register_eh_frames() {
   if (__register_frame)
     __register_frame(__eh_frame_start);
@@ -57,7 +64,23 @@ constinit ukernel_pt_t identity_pt{};
 constinit ukernel_pt_t ukernel_pt{};
 constexpr std::uint16_t ukernel_asid{0};
 
-static xino::error_t setup_identity_mapping() {
+[[nodiscard]] static xino::error_t
+map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
+  if (end <= begin)
+    return xino::error_nr::ok;
+
+  const std::size_t offset{static_cast<std::size_t>(begin - __image_start)};
+
+  ukernel_pt_t::addr_t seg_va{};
+  seg_va.addr = xino::mm::va_layout::ukimage_va_base + offset;
+  seg_va.asid = ukernel_asid;
+
+  return ukernel_pt.map_range(seg_va,
+                              xino::mm::va_layout::ukimage_pa_base + offset,
+                              static_cast<std::size_t>(end - begin), prot);
+}
+
+[[nodiscard]] static xino::error_t setup_identity_mapping() {
   xino::error_t err{xino::error_nr::ok};
 
   err = identity_pt.init(boot_allocator);
@@ -86,7 +109,7 @@ static xino::error_t setup_identity_mapping() {
   return xino::error_nr::ok;
 }
 
-static xino::error_t setup_ukernel_mapping() {
+[[nodiscard]] static xino::error_t setup_ukernel_mapping() {
   xino::error_t err{xino::error_nr::ok};
 
   err = ukernel_pt.init(boot_allocator);
@@ -96,10 +119,10 @@ static xino::error_t setup_ukernel_mapping() {
   ukernel_pt_t::addr_t direct_va_range{};
   direct_va_range.addr = xino::mm::va_layout::page_offset;
   direct_va_range.asid = ukernel_asid;
-  // Map `[page_offset, page_end]` to
-  //     `[0x0, page_end - page_offset]`.
-  // For instance `[0x1000, 0x1fff]` is mapped to `[0x0, 0xfff]` calling
-  //   `ukernel_pt.map_range(0x1000, 0x0, 0xfff + 1, ...)`.
+  // Map the entire direct-map window `[page_offset, page_end]` (inclusive) to
+  // `[0x0, page_end - page_offset + 1)`. For instance `[0x1000, 0x1fff]`
+  // becomes `[0x0, 0x1000)` calling
+  // `ukernel_pt.map_range(0x1000, 0x0, 0xfff + 1, ...)`.
   err = ukernel_pt.map_range(direct_va_range, mm::phys_addr{0},
                              xino::mm::va_layout::page_end -
                                  xino::mm::va_layout::page_offset + 1,
@@ -111,19 +134,30 @@ static xino::error_t setup_ukernel_mapping() {
     return err;
   }
 
-  ukernel_pt_t::addr_t image{};
-  image.addr = xino::mm::va_layout::ukimage_va_base;
-  image.asid = ukernel_asid;
-  // Map `[ukimage_va_base, ukimage_va_base + ukimage_size)` to
-  //     `[ukimage_pa_base, ukimage_pa_base + ukimage_size)`.
-  err = ukernel_pt.map_range(image, xino::mm::va_layout::ukimage_pa_base,
-                             xino::mm::va_layout::ukimage_size,
-                             xino::mm::prot{mm::prot::KERNEL_RWX});
-  if (err != xino::error_nr::ok) {
-    // `map_range()` is not atomic.
-    ukernel_pt.deinit();
+  const struct {
+    const char *begin;
+    const char *end;
+    xino::mm::prot prot;
+  } image_segments[] = {
+      // .text :
+      {__image_start, __rodata_start, xino::mm::prot{mm::prot::KERNEL_RX}},
+      // .rodata, .eh_frame_hdr, .eh_frame, .gcc_except_table, .init_array,
+      // .fini_array, .got :
+      {__rodata_start, __data_start, xino::mm::prot{mm::prot::KERNEL_R}},
+      // .data, .percpu, .bss, .boot_heap :
+      {__data_start, __rela_dyn_start, xino::mm::prot{mm::prot::KERNEL_RW}},
+      // .rela.dyn :
+      {__rela_dyn_start, __rela_dyn_end, xino::mm::prot{mm::prot::KERNEL_R}},
+  };
 
-    return err;
+  for (const auto &seg : image_segments) {
+    err = map_image_segment(seg.begin, seg.end, seg.prot);
+    if (err != xino::error_nr::ok) {
+      // `map_range()` is not atomic.
+      ukernel_pt.deinit();
+
+      return err;
+    }
   }
 
   xino::mm::paging::install_kernel_ttbr(ukernel_pt.root(), ukernel_asid);

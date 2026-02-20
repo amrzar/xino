@@ -12,7 +12,7 @@
  *  - No dynamic initialization code is required just to instantiate allocator
  *    objects (i.e. no hidden constructor calls via `.init_array`).
  *  - The allocator state is brought up explicitly, at a time chosen by the
- *    boot flow.
+ *    boot flow (e.g. using @ref buddy::init()).
  *
  * Therefore, the buddy allocator is designed so that:
  *
@@ -20,6 +20,14 @@
  *    storage duration (e.g. `constinit buddy<N> g{}`).
  *  - It performs all initialization explicitly in @ref buddy::init(), rather
  *    than relying on non-trivial constructors or member initializers.
+ *
+ * ## Lifetime and ownership model
+ *
+ *  - The allocator owns only its **metadata/ bookkeeping** (free/split bitmaps
+ *    and pool state); it does **not** own the physical pages themselves.
+ *  - There is intentionally no `deinit()` operation: destroying or discarding
+ *    the allocator object (or its metadata) does **not** affect pages that were
+ *    previously handed out.
  *
  * @author Amirreza Zarrabi
  * @date 2026

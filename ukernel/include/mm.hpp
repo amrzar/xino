@@ -1,9 +1,64 @@
 /**
  * @file mm.hpp
- * @brief Core mm *abstract* types.
+ * @brief Core MM *abstract* types.
  *
- * The page-table builder code translate abstract attributes into concrete
- * AARCH64 MMU bits and operations.
+ *  - Strongly-typed address wrappers (`phys_addr`, `virt_addr`, `ipa_addr`)
+ *    with byte arithmetic, alignment helpers, and comparisons.
+ *  - Minimal strided address ranges for `range-for` iteration.
+ *  - An abstract protection bitmask (`xino::mm::prot`).
+ *
+ * ## Early-boot considerations
+ *
+ * The uKernel may execute code very early (including PIE self-relocation)
+ * before any C++ dynamic initialization (`.init_array`) has run. The types in
+ * this file are designed to be safe in that environment:
+ *
+ *  - Address wrappers are thin `uintptr_t`-backed value types; operations are
+ *    `constexpr` and `noexcept` and compile down to integer arithmetic.
+ *
+ * ### Static storage initialization and `constinit`
+ *
+ * For objects with **static storage duration** (globals / namespace-scope
+ * `static` / static data members), C++ initialization can become **dynamic
+ * initialization** (runtime code, typically via `.init_array`) if the
+ * initializer is not a constant expression.
+ *
+ * Prefer `constinit` for any static-storage object that might be used before
+ * `.init_array`, because it **enforces** constant initialization and turns
+ * accidental dynamic initialization into a compile-time error.
+ *
+ * ### Automatic variables and parameters
+ *
+ * For **automatic (stack) variables** and **parameters**, there is no
+ * `.init_array` concern: construction happens at the point of execution. These
+ * address wrappers are safe to use in early boot as locals/parameters because
+ * they are simple integer wrappers and do not depend on runtime services.
+ *
+ * ### `virt_addr` pointer constructor caveat
+ *
+ * `virt_addr` provides a convenience constructor from `void const*` that is
+ * intentionally **not `constexpr`**. Therefore it cannot be used for constant
+ * initialization:
+ *
+ * @code
+ * // OK as a local (runtime conversion, no dynamic init concerns).
+ * xino::mm::virt_addr lv{&obj};
+ * // Avoid as a global/static used in early boot.
+ * xino::mm::virt_addr gv{&obj};
+ * @endcode
+ *
+ * ### Rule of thumb (boot-safe usage)
+ *
+ *  - **Locals/parameters:** fine to construct/copy/compare these types freely.
+ *  - **Globals/statics that may be touched before `.init_array`:**
+ *      - Use `constinit`.
+ *      - Initialize from **literal or `constexpr` integer expressions**, not
+ *        from pointers or non-`constexpr` variables.
+ *      - Avoid function-local statics in early boot (they typically require
+ *        guard variables and runtime support).
+ *  - Be careful with global copies such as `virt_addr v{other_va};`: this is
+ *    boot-safe for locals, but for static storage it is only guaranteed to
+ *    avoid `.init_array` when the source value is a constant expression.
  *
  * @author Amirreza Zarrabi
  * @date 2025
@@ -423,7 +478,9 @@ public:
   static constexpr mask_t RWE{RW | EXECUTE}; /**< RW, and executable. */
   static constexpr mask_t ALL_BITS{RWE | KERNEL | DEVICE | SHARED};
   // Combined flags.
+  static constexpr mask_t KERNEL_R{READ | KERNEL | SHARED};
   static constexpr mask_t KERNEL_RW{RW | KERNEL | SHARED};
+  static constexpr mask_t KERNEL_RX{(READ | EXECUTE) | KERNEL | SHARED};
   static constexpr mask_t KERNEL_RWX{RWE | KERNEL | SHARED};
   ///@}
 

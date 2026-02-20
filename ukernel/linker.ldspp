@@ -18,6 +18,8 @@ SECTIONS
     __text_end = .;
   }
 
+  . = ALIGN(UKERNEL_PAGE_SIZE);
+
   .rodata : ALIGN(16) {
     __rodata_start = .;
     *(.rodata .rodata.*)
@@ -64,6 +66,10 @@ SECTIONS
     __got_end = .;
   }
 
+  HIDDEN(__relro_end = .);
+
+  . = ALIGN(UKERNEL_PAGE_SIZE);
+
   /* END RELRO. */
 
   /* START DATA (RW). */
@@ -100,6 +106,8 @@ SECTIONS
     . = ALIGN(UKERNEL_PAGE_SIZE);
     HIDDEN(__boot_heap_end = .);
   }
+
+  . = ALIGN(UKERNEL_PAGE_SIZE);
 
   /* END DATA. */
 
