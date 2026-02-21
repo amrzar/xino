@@ -56,8 +56,6 @@ static void deregister_eh_frames() {
     __deregister_frame(__eh_frame_start);
 }
 
-namespace {
-
 // Temporary identity mapping.
 constinit ukernel_pt_t identity_pt{};
 // uKernel mapping (direct + ukimage).
@@ -66,18 +64,22 @@ constexpr std::uint16_t ukernel_asid{0};
 
 [[nodiscard]] static xino::error_t
 map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
-  if (end <= begin)
+  const std::uintptr_t begin_u = reinterpret_cast<std::uintptr_t>(begin);
+  const std::uintptr_t end_u = reinterpret_cast<std::uintptr_t>(end);
+  const std::uintptr_t img_u = reinterpret_cast<std::uintptr_t>(__image_start);
+
+  if (end_u <= begin_u)
     return xino::error_nr::ok;
 
-  const std::size_t offset{static_cast<std::size_t>(begin - __image_start)};
+  const std::size_t offset = static_cast<std::size_t>(begin_u - img_u);
+  const std::size_t size = static_cast<std::size_t>(end_u - begin_u);
 
   ukernel_pt_t::addr_t seg_va{};
   seg_va.addr = xino::mm::va_layout::ukimage_va_base + offset;
   seg_va.asid = ukernel_asid;
 
-  return ukernel_pt.map_range(seg_va,
-                              xino::mm::va_layout::ukimage_pa_base + offset,
-                              static_cast<std::size_t>(end - begin), prot);
+  return ukernel_pt.map_range(
+      seg_va, xino::mm::va_layout::ukimage_pa_base + offset, size, prot);
 }
 
 [[nodiscard]] static xino::error_t setup_identity_mapping() {
@@ -146,8 +148,8 @@ map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
       {__rodata_start, __data_start, xino::mm::prot{mm::prot::KERNEL_R}},
       // .data, .percpu, .bss, .boot_heap :
       {__data_start, __rela_dyn_start, xino::mm::prot{mm::prot::KERNEL_RW}},
-      // .rela.dyn :
-      {__rela_dyn_start, __rela_dyn_end, xino::mm::prot{mm::prot::KERNEL_R}},
+      // .rela.dyn (ignored, already consumed in `reloc.c` during boot):
+      // {__rela_dyn_start, __rela_dyn_end, xino::mm::prot{mm::prot::KERNEL_R}},
   };
 
   for (const auto &seg : image_segments) {
@@ -164,8 +166,6 @@ map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
 
   return xino::error_nr::ok;
 }
-
-} // namespace
 
 extern "C" void ukernel_entry() {
   /* uKernel has been relocated, and the boot allocator is functional. */

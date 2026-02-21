@@ -3,14 +3,8 @@
  * @file linker.ldspp
  * @brief Layout and symbol-visibility contract for the uKernel image.
  *
- * Motivation for the pervasive `HIDDEN(...)` assignments:
- *
- *  - Early boot (start.S, reloc.c, percpu.cpp, boot allocator) runs with the
- *    MMU disabled; addresses must be materialized via PC-relative sequences.
- *  - Hidden symbols are non-preemptible, so the linker is forced to generate
- *    direct references instead of GOT/PLT indirections.
- *  - Only symbols consumed after paging is enabled (e.g., EH tables, fini
- *    arrays, GOT) remain visible to aid diagnostics and tooling.
+ * @author Amirreza Zarrabi
+ * @date 2025
  */
 
 #include <config.h>
@@ -21,6 +15,18 @@ ENTRY(_start)
 SECTIONS
 {
   . = 0;
+
+  // `HIDDEN(...)` is applied to most internal symbols to ensure correct
+  // relocation and linkage during early boot.
+  //
+  // Before the MMU is enabled (`start.S`, `reloc.c`, `percpu.cpp`, boot
+  // allocator), symbol addresses must be resolved using PC-relative sequences.
+  // Hidden symbols are non-preemptible, so the linker emits direct references
+  // instead of GOT/PLT indirections.
+  //
+  // Symbols needed only after paging is enabled (e.g., EH tables,
+  // `.fini_array`, and the GOT) remain visible for runtime support,
+  // diagnostics, and tooling.
 
   HIDDEN(__image_start = .);
 
@@ -39,7 +45,7 @@ SECTIONS
     HIDDEN(__rodata_end = .);
   }
 
-  /* Exception handling and unwinding info. */
+  // Exception handling and unwinding info.
   .eh_frame_hdr : ALIGN(8) {
     __eh_frame_hdr_start = .;
     KEEP(*(.eh_frame_hdr))
@@ -57,10 +63,13 @@ SECTIONS
     *(.gcc_except_table .gcc_except_table.*)
   }
 
-  /* START RELRO. */
-  /* GNU_RELRO. */
+  // START RELRO.
+  // GNU_RELRO
+  // Regions that are writable during relocation and become read-only.
 
-  /* C++ static initialization arrays. */
+  HIDDEN(__relro_start = .);
+
+  // C++ static initialization arrays.
   .init_array : ALIGN(8) {
     HIDDEN(__init_array_start = .);
     KEEP(*(.init_array .init_array.*))
@@ -75,17 +84,16 @@ SECTIONS
 
   .got : ALIGN(8) {
     __got_start = .;
-    *(.got .got.*)
+    *(.got)
     __got_end = .;
   }
 
-  HIDDEN(__relro_end = .);
-
   . = ALIGN(UKERNEL_PAGE_SIZE);
 
-  /* END RELRO. */
+  HIDDEN(__relro_end = .);
+  // END RELRO.
 
-  /* START DATA (RW). */
+  // START DATA (RW).
 
   .data : ALIGN(16) {
     HIDDEN(__data_start = .);
@@ -104,7 +112,7 @@ SECTIONS
 
   .bss (NOLOAD) : ALIGN(16) {
     HIDDEN(__bss_start = .);
-    /* Keep initial stack in .bss. */
+    // Keep initial stack in .bss.
     HIDDEN(__stack_bottom = .);
     . += UKERNEL_STACK_SIZE;
     HIDDEN(__stack_top = .);
@@ -122,7 +130,7 @@ SECTIONS
 
   . = ALIGN(UKERNEL_PAGE_SIZE);
 
-  /* END DATA. */
+  // END DATA.
 
   .rela.dyn : ALIGN(8) {
     HIDDEN(__rela_dyn_start = .);

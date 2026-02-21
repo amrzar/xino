@@ -566,6 +566,7 @@ public:
     if (root_pa != xino::mm::phys_addr{0}) {
       free_subtree(root_pa, 0);
       root_pa = xino::mm::phys_addr{0};
+      allocator = nullptr;
     }
   }
 
@@ -1399,8 +1400,8 @@ private:
     }
   }
 
-  Allocator *allocator;
-  xino::mm::phys_addr root_pa;
+  Allocator *allocator{nullptr};
+  xino::mm::phys_addr root_pa{};
 };
 
 /* PUBLIC API. */
