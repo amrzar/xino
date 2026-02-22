@@ -62,48 +62,74 @@ constinit ukernel_pt_t identity_pt{};
 constinit ukernel_pt_t ukernel_pt{};
 constexpr std::uint16_t ukernel_asid{0};
 
+/**
+ * @brief Map a contiguous uKernel image segment into the ukernel VA window.
+ *
+ * Builds a VA/PA pair based on the relocation delta between the current image
+ * layout (`__image_start`) and the requested segment range, then programs the
+ * final kernel page tables with the provided protection flags.
+ *
+ * @param begin Inclusive start of the segment in the loaded image.
+ * @param end Exclusive end of the segment in the loaded image.
+ * @param prot Protection mask to apply to the mapped range.
+ *
+ * @retval xino::error_nr::ok Segment was empty or mapped successfully.
+ * @retval Other `xino::error_nr` Mapping failed (propagated from
+ *         `ukernel_pt_t::map_range`).
+ */
 [[nodiscard]] static xino::error_t
 map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
-  const std::uintptr_t begin_u = reinterpret_cast<std::uintptr_t>(begin);
-  const std::uintptr_t end_u = reinterpret_cast<std::uintptr_t>(end);
-  const std::uintptr_t img_u = reinterpret_cast<std::uintptr_t>(__image_start);
+  const auto begin_u{reinterpret_cast<std::uintptr_t>(begin)};
+  const auto end_u{reinterpret_cast<std::uintptr_t>(end)};
+  const auto img_u{reinterpret_cast<std::uintptr_t>(__image_start)};
 
   if (end_u <= begin_u)
     return xino::error_nr::ok;
 
-  const std::size_t offset = static_cast<std::size_t>(begin_u - img_u);
-  const std::size_t size = static_cast<std::size_t>(end_u - begin_u);
+  const auto offset{static_cast<std::size_t>(begin_u - img_u)};
+  const auto size{static_cast<std::size_t>(end_u - begin_u)};
 
   ukernel_pt_t::addr_t seg_va{};
   seg_va.addr = xino::mm::va_layout::ukimage_va_base + offset;
   seg_va.asid = ukernel_asid;
-
+  // `linker.ldspp` aligns each referenced section boundary to
+  // `UKERNEL_PAGE_SIZE`, so both `offset` and `size` are granule multiples and
+  // satisfy `map_range()` alignment requirements.
   return ukernel_pt.map_range(
       seg_va, xino::mm::va_layout::ukimage_pa_base + offset, size, prot);
 }
 
+/**
+ * @brief Create a temporary identity mapping for the ukernel image.
+ *
+ * Allocates a dedicated stage-1 page table, installs RWX mappings that cover
+ * `[ukimage_pa_base, ukimage_pa_base + ukimage_size)`, and programs TTBR0 so
+ * the currently executing code keeps running once the MMU is turned on.
+ *
+ * @return `xino::error_nr::ok` on success, otherwise the status returned by
+ *         `ukernel_pt_t::init()` or `map_range()`.
+ */
 [[nodiscard]] static xino::error_t setup_identity_mapping() {
-  xino::error_t err{xino::error_nr::ok};
+  if (auto ret{identity_pt.init(boot_allocator)}; ret)
+    return ret;
 
-  err = identity_pt.init(boot_allocator);
-  if (err != xino::error_nr::ok)
-    return err;
+  const auto pa{static_cast<xino::mm::phys_addr::value_type>(
+      xino::mm::va_layout::ukimage_pa_base)};
 
   ukernel_pt_t::addr_t ident_va_range{};
-  ident_va_range.addr =
-      xino::mm::virt_addr{static_cast<xino::mm::phys_addr::value_type>(
-          xino::mm::va_layout::ukimage_pa_base)};
+  ident_va_range.addr = xino::mm::virt_addr{pa};
   ident_va_range.asid = ukernel_asid;
   // Identity map the ukernel range:
   // `[ukimage_pa_base, ukimage_pa_base + ukimage_size)`.
-  err = identity_pt.map_range(
-      ident_va_range, xino::mm::va_layout::ukimage_pa_base,
-      xino::mm::va_layout::ukimage_size, xino::mm::prot{mm::prot::KERNEL_RWX});
-  if (err != xino::error_nr::ok) {
+  if (auto ret{identity_pt.map_range(ident_va_range,
+                                     xino::mm::va_layout::ukimage_pa_base,
+                                     xino::mm::va_layout::ukimage_size,
+                                     xino::mm::prot{mm::prot::KERNEL_RWX})};
+      ret) {
     // `map_range()` is not atomic.
     identity_pt.deinit();
 
-    return err;
+    return ret;
   }
 
   xino::mm::paging::install_user_ttbr(identity_pt.root(), ukernel_asid);
@@ -111,12 +137,20 @@ map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
   return xino::error_nr::ok;
 }
 
+/**
+ * @brief Build the final uKernel mappings (direct map + ukimage window).
+ *
+ * Initializes the long-lived stage-1 tables, maps the full direct-map window
+ * with RW permissions, applies per-section permissions for the relocated
+ * ukernel image inside `[ukimage_va_base, ukimage_va_base + ukimage_size)`,
+ * and finally installs the table in TTBR1.
+ *
+ * @return `xino::error_nr::ok` on success, otherwise the status returned by
+ *         `ukernel_pt_t::init()` or `map_range()`.
+ */
 [[nodiscard]] static xino::error_t setup_ukernel_mapping() {
-  xino::error_t err{xino::error_nr::ok};
-
-  err = ukernel_pt.init(boot_allocator);
-  if (err != xino::error_nr::ok)
-    return err;
+  if (auto ret{ukernel_pt.init(boot_allocator)}; ret)
+    return ret;
 
   ukernel_pt_t::addr_t direct_va_range{};
   direct_va_range.addr = xino::mm::va_layout::page_offset;
@@ -125,15 +159,15 @@ map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
   // `[0x0, page_end - page_offset + 1)`. For instance `[0x1000, 0x1fff]`
   // becomes `[0x0, 0x1000)` calling
   // `ukernel_pt.map_range(0x1000, 0x0, 0xfff + 1, ...)`.
-  err = ukernel_pt.map_range(direct_va_range, mm::phys_addr{0},
-                             xino::mm::va_layout::page_end -
-                                 xino::mm::va_layout::page_offset + 1,
-                             xino::mm::prot{mm::prot::KERNEL_RW});
-  if (err != xino::error_nr::ok) {
+  if (auto ret{ukernel_pt.map_range(direct_va_range, mm::phys_addr{0},
+                                    xino::mm::va_layout::page_end -
+                                        xino::mm::va_layout::page_offset + 1,
+                                    xino::mm::prot{mm::prot::KERNEL_RW})};
+      ret) {
     // `map_range()` is not atomic.
     ukernel_pt.deinit();
 
-    return err;
+    return ret;
   }
 
   const struct {
@@ -153,12 +187,11 @@ map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
   };
 
   for (const auto &seg : image_segments) {
-    err = map_image_segment(seg.begin, seg.end, seg.prot);
-    if (err != xino::error_nr::ok) {
+    if (auto ret{map_image_segment(seg.begin, seg.end, seg.prot)}; ret) {
       // `map_range()` is not atomic.
       ukernel_pt.deinit();
 
-      return err;
+      return ret;
     }
   }
 
@@ -178,8 +211,11 @@ extern "C" void ukernel_entry() {
   cpu::tcr_el2::write(xino::mm::paging::make_tcr_el2(
       xino::cpu::cpu_feats.pa_bits, xino::mm::va_layout::va_bits));
 
-  setup_identity_mapping();
-  setup_ukernel_mapping();
+  if (setup_identity_mapping())
+    xino::cpu::panic();
+
+  if (setup_ukernel_mapping())
+    xino::cpu::panic();
 
   mm::va_layout::va_layout_enabled = true;
 

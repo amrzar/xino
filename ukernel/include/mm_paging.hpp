@@ -620,7 +620,7 @@ public:
 
       const std::size_t map_sz = level_size(leaf);
 
-      if (auto ret = map_one(a, pa, p, leaf); ret != xino::error_nr::ok)
+      if (auto ret{map_one(a, pa, p, leaf)}; ret)
         return ret;
 
       a.addr += map_sz;
@@ -674,7 +674,7 @@ public:
     const std::size_t chunk = level_size(leaf);
 
     while (size) {
-      if (auto ret = protect_one(a, p, leaf); ret != xino::error_nr::ok)
+      if (auto ret{protect_one(a, p, leaf)}; ret)
         return ret;
 
       a.addr += chunk;
@@ -724,7 +724,7 @@ public:
     const std::size_t chunk = level_size(leaf);
 
     while (size) {
-      if (auto ret = unmap_one(a, leaf); ret != xino::error_nr::ok)
+      if (auto ret{unmap_one(a, leaf)}; ret)
         return ret;
 
       a.addr += chunk;
@@ -1133,8 +1133,7 @@ private:
 
       // FAULT but at level < leaf_level; install a table.
       xino::mm::phys_addr child{};
-      if (auto ret{alloc_and_link_table(entry, child)};
-          ret != xino::error_nr::ok)
+      if (auto ret{alloc_and_link_table(entry, child)}; ret)
         return ret;
 
       t = pa_to_pte(child);
@@ -1201,8 +1200,7 @@ private:
         return xino::error_nr::ok;
 
       // Allocate a table and break the block, if required.
-      if (auto ret{split_block(addr_at_level(a, level), entry, level)};
-          ret != xino::error_nr::ok)
+      if (auto ret{split_block(addr_at_level(a, level), entry, level)}; ret)
         return ret;
 
       // Expect a table (after split_block()), check only to be safe.
@@ -1284,8 +1282,7 @@ private:
         return xino::error_nr::invalid;
 
       // Allocate a table and break the block, if required.
-      if (auto ret{split_block(addr_at_level(a, level), entry, level)};
-          ret != xino::error_nr::ok)
+      if (auto ret{split_block(addr_at_level(a, level), entry, level)}; ret)
         return ret;
 
       // Expect a table (after split_block()), check only to be safe.

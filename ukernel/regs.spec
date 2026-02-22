@@ -165,7 +165,7 @@
         {
           "encoding" : "MAIR_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ishst", "post_write" : "isb"},
           "fields" : [ {
             "access" : "rw",
             "description" : "Memory Attribute Indirection Register."
@@ -175,6 +175,7 @@
           "encoding" : "DAIFSet",
           "width" : 64,
           "policy" : {
+            "pre_write" : "dsb ishst",
             "post_write" : "isb",
             "immediate_bits" :
                 {"fiq" : 1, "irq" : 2, "s_error" : 4, "debug" : 8}
@@ -184,6 +185,7 @@
           "encoding" : "DAIFClr",
           "width" : 64,
           "policy" : {
+            "pre_write" : "dsb ishst",
             "post_write" : "isb",
             "immediate_bits" :
                 {"fiq" : 1, "irq" : 2, "s_error" : 4, "debug" : 8}
@@ -192,7 +194,7 @@
         {
           "encoding" : "DAIF",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ishst", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "d",
@@ -223,7 +225,7 @@
         {
           "encoding" : "SCTLR_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb sy", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "m",
@@ -266,7 +268,7 @@
         {
           "encoding" : "TCR_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ish", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "t0sz",
@@ -437,7 +439,7 @@
         {
           "encoding" : "TTBR0_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ishst", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "comm_not_priv",
@@ -464,7 +466,7 @@
         {
           "encoding" : "TTBR1_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ishst", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "comm_not_priv",
@@ -491,7 +493,7 @@
         {
           "encoding" : "HCR_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb sy", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "vm",
@@ -535,7 +537,7 @@
         {
           "encoding" : "VTCR_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ish", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "t0sz",
@@ -620,7 +622,7 @@
         {
           "encoding" : "VTTBR_EL2",
           "width" : 64,
-          "policy" : {"post_write" : "isb"},
+          "policy" : {"pre_write" : "dsb ishst", "post_write" : "isb"},
           "fields" : [
             {
               "name" : "comm_not_priv",
