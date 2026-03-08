@@ -81,12 +81,12 @@ constexpr std::uint16_t ukernel_asid{0};
 map_image_segment(const char *begin, const char *end, xino::mm::prot prot) {
   const auto begin_u{reinterpret_cast<std::uintptr_t>(begin)};
   const auto end_u{reinterpret_cast<std::uintptr_t>(end)};
-  const auto img_u{reinterpret_cast<std::uintptr_t>(__image_start)};
 
   if (end_u <= begin_u)
     return xino::error_nr::ok;
 
-  const auto offset{static_cast<std::size_t>(begin_u - img_u)};
+  const auto offset{static_cast<std::size_t>(
+      begin_u - reinterpret_cast<std::uintptr_t>(__image_start))};
   const auto size{static_cast<std::size_t>(end_u - begin_u)};
 
   ukernel_pt_t::addr_t seg_va{};
